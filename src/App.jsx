@@ -1,31 +1,68 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 
-// ─── Supabase sync ────────────────────────────────────────────────────────────
-const SB_URL  = 'https://fkffanvwmkswjukjjenp.supabase.co';
-const SB_KEY  = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZrZmZhbnZ3bWtzd2p1a2pqZW5wIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzczMjM0MjEsImV4cCI6MjA5Mjg5OTQyMX0.Vu2t3TuJ3U7ts9DDIoH3mV42oAGwRm-xaSXp_nP6aiw';
-const SB_USER = 'onelist_default'; // change this to your name/email to separate accounts later
-const SB_HDR  = { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}`, 'Content-Type': 'application/json' };
+// ─── Supabase ─────────────────────────────────────────────────────────────────
+const SB_URL = 'https://fkffanvwmkswjukjjenp.supabase.co';
+const SB_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZrZmZhbnZ3bWtzd2p1a2pqZW5wIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzczMjM0MjEsImV4cCI6MjA5Mjg5OTQyMX0.Vu2t3TuJ3U7ts9DDIoH3mV42oAGwRm-xaSXp_nP6aiw';
 
-async function sbLoad() {
+const sbHdr = (token, extra={}) => ({ apikey: SB_KEY, Authorization: `Bearer ${token}`, 'Content-Type': 'application/json', ...extra });
+
+// ── Auth ──────────────────────────────────────────────────────────────────────
+async function sbSignIn(email, password) {
+  const r = await fetch(`${SB_URL}/auth/v1/token?grant_type=password`, {
+    method:'POST', headers:{ apikey:SB_KEY, 'Content-Type':'application/json' },
+    body: JSON.stringify({ email, password })
+  });
+  const d = await r.json();
+  if (d.error || d.error_description) throw new Error(d.error_description || d.error);
+  return { access_token:d.access_token, refresh_token:d.refresh_token, user_id:d.user.id, email:d.user.email };
+}
+
+async function sbSignUp(email, password) {
+  const r = await fetch(`${SB_URL}/auth/v1/signup`, {
+    method:'POST', headers:{ apikey:SB_KEY, 'Content-Type':'application/json' },
+    body: JSON.stringify({ email, password })
+  });
+  const d = await r.json();
+  if (d.error || d.error_description) throw new Error(d.error_description || d.error);
+  if (!d.access_token) throw new Error('Check your email to confirm your account, then sign in.');
+  return { access_token:d.access_token, refresh_token:d.refresh_token, user_id:d.user.id, email:d.user.email };
+}
+
+async function sbSignOut(token) {
+  try { await fetch(`${SB_URL}/auth/v1/logout`, { method:'POST', headers: sbHdr(token) }); } catch {}
+}
+
+async function sbRefresh(refresh_token) {
+  const r = await fetch(`${SB_URL}/auth/v1/token?grant_type=refresh_token`, {
+    method:'POST', headers:{ apikey:SB_KEY, 'Content-Type':'application/json' },
+    body: JSON.stringify({ refresh_token })
+  });
+  const d = await r.json();
+  if (d.error) throw new Error(d.error_description || d.error);
+  return { access_token:d.access_token, refresh_token:d.refresh_token, user_id:d.user.id, email:d.user.email };
+}
+
+// ── Data ──────────────────────────────────────────────────────────────────────
+async function sbLoad(token, userId) {
   try {
-    const r = await fetch(`${SB_URL}/rest/v1/user_data?user_id=eq.${SB_USER}&select=id,payload&limit=1`, { headers: SB_HDR });
+    const r = await fetch(`${SB_URL}/rest/v1/user_data?user_id=eq.${userId}&select=id,payload&limit=1`, { headers: sbHdr(token) });
     const rows = await r.json();
-    return rows[0] || null; // { id, payload } or null
+    return rows[0] || null;
   } catch { return null; }
 }
 
-async function sbSave(rowId, payload) {
+async function sbSave(token, userId, rowId, payload) {
   try {
     if (rowId) {
       await fetch(`${SB_URL}/rest/v1/user_data?id=eq.${rowId}`, {
-        method: 'PATCH', headers: SB_HDR,
+        method:'PATCH', headers: sbHdr(token),
         body: JSON.stringify({ payload, updated_at: new Date().toISOString() })
       });
       return rowId;
     } else {
       const r = await fetch(`${SB_URL}/rest/v1/user_data`, {
-        method: 'POST', headers: { ...SB_HDR, Prefer: 'return=representation' },
-        body: JSON.stringify({ user_id: SB_USER, payload, updated_at: new Date().toISOString() })
+        method:'POST', headers: sbHdr(token, { Prefer:'return=representation' }),
+        body: JSON.stringify({ user_id:userId, payload, updated_at: new Date().toISOString() })
       });
       const rows = await r.json();
       return rows[0]?.id || null;
@@ -116,6 +153,11 @@ function TaskCard({task,T,dm,getProj,expTask,setExpTask,toggleDone,toggleSub,add
 export default function OneList(){
   const TODAY=new Date();
   const [data,setData]=useState(null);
+  const [session,setSession]=useState(null);
+  const [authView,setAuthView]=useState('login');
+  const [authForm,setAuthForm]=useState({email:'',password:''});
+  const [authErr,setAuthErr]=useState('');
+  const [authLoad,setAuthLoad]=useState(false);
   const [loading,setLoading]=useState(true);
   const [dm,setDm]=useState(false);
   const [view,setView]=useState('dashboard');
@@ -145,33 +187,34 @@ export default function OneList(){
   const recRef  = useRef(null);
   const dbRowId = useRef(null); // tracks Supabase row id
 
-  // load from Supabase (falls back to local storage, then defaults)
+  // load — check saved session first, then load data
   useEffect(()=>{
     (async()=>{
       try {
-        const row = await sbLoad();
-        if (row?.payload) {
-          dbRowId.current = row.id;
-          setData(row.payload);
-          setLoading(false);
-          return;
+        const saved = JSON.parse(localStorage.getItem('onelist_session')||'null');
+        if (saved?.access_token) {
+          let sess = saved;
+          // try loading data; if it fails, refresh token
+          let row = await sbLoad(sess.access_token, sess.user_id);
+          if (!row) {
+            try { sess = await sbRefresh(saved.refresh_token); localStorage.setItem('onelist_session',JSON.stringify(sess)); row = await sbLoad(sess.access_token, sess.user_id); } catch { localStorage.removeItem('onelist_session'); setLoading(false); return; }
+          }
+          setSession(sess);
+          if (row?.payload) { dbRowId.current=row.id; setData(row.payload); }
+          else setData(DEFAULTS);
+          setLoading(false); return;
         }
       } catch {}
-      // fallback: local storage
-      try { const r=JSON.parse(localStorage.getItem('onelist_v3') || 'null'); setData(r || DEFAULTS); }
-      catch { setData(DEFAULTS); }
-      setLoading(false);
+      setLoading(false); // no session → show login
     })();
   },[]);
 
-  // save to Supabase + local storage on every change
+  // save — only when logged in
   useEffect(()=>{
-    if(!data)return;
+    if(!data||!session)return;
     (async()=>{
-      // local backup
-      try { localStorage.setItem('onelist_v3', JSON.stringify(data)); } catch {}
-      // cloud save
-      try { dbRowId.current = await sbSave(dbRowId.current, data); } catch {}
+      try { localStorage.setItem('onelist_v3',JSON.stringify(data)); } catch {}
+      try { dbRowId.current=await sbSave(session.access_token,session.user_id,dbRowId.current,data); } catch {}
     })();
   },[data]);
 
@@ -332,7 +375,90 @@ export default function OneList(){
     return out.slice(0,30);
   },[srchQ,data]);
 
+  // ── Auth handlers ────────────────────────────────────────────────────────
+  const handleSignIn = async () => {
+    setAuthLoad(true); setAuthErr('');
+    try {
+      const sess = await sbSignIn(authForm.email, authForm.password);
+      localStorage.setItem('onelist_session', JSON.stringify(sess));
+      setSession(sess);
+      const row = await sbLoad(sess.access_token, sess.user_id);
+      if (row?.payload) { dbRowId.current=row.id; setData(row.payload); }
+      else setData(DEFAULTS);
+    } catch(e) { setAuthErr(e.message); }
+    setAuthLoad(false);
+  };
+
+  const handleSignUp = async () => {
+    if (!authForm.email||!authForm.password) { setAuthErr('Please enter email and password.'); return; }
+    if (authForm.password.length < 6) { setAuthErr('Password must be at least 6 characters.'); return; }
+    setAuthLoad(true); setAuthErr('');
+    try {
+      const sess = await sbSignUp(authForm.email, authForm.password);
+      localStorage.setItem('onelist_session', JSON.stringify(sess));
+      setSession(sess); setData(DEFAULTS);
+    } catch(e) { setAuthErr(e.message); }
+    setAuthLoad(false);
+  };
+
+  const handleSignOut = async () => {
+    if (session) await sbSignOut(session.access_token);
+    localStorage.removeItem('onelist_session');
+    localStorage.removeItem('onelist_v3');
+    setSession(null); setData(null); dbRowId.current=null;
+  };
+
   if(loading) return <div style={{display:'flex',alignItems:'center',justifyContent:'center',minHeight:'100vh',fontSize:14,color:'#999',fontFamily:'system-ui'}}>Loading OneList…</div>;
+
+  // ── Login / Signup screen ────────────────────────────────────────────────
+  if (!session) return (
+    <div style={{minHeight:'100vh',background:'#F7F6F3',display:'flex',alignItems:'center',justifyContent:'center',padding:20,fontFamily:"'DM Sans',system-ui,sans-serif"}}>
+      <style>{`@import url('https://fonts.googleapis.com/css2?family=Lora:wght@700&family=DM+Sans:wght@400;500;600;700&display=swap');*,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}`}</style>
+      <div style={{width:'100%',maxWidth:400}}>
+        {/* Logo */}
+        <div style={{textAlign:'center',marginBottom:36}}>
+          <div style={{fontFamily:"'Lora',Georgia,serif",fontSize:32,fontWeight:700,color:'#1A1A18',letterSpacing:'-1px'}}>
+            One<span style={{color:'#FF6B35'}}>List</span>
+          </div>
+          <div style={{fontSize:13,color:'#ABA9A3',marginTop:6}}>Many projects. One day. One list.</div>
+        </div>
+
+        {/* Card */}
+        <div style={{background:'#fff',borderRadius:20,padding:32,boxShadow:'0 4px 40px rgba(0,0,0,.08)',border:'1px solid #E8E5E0'}}>
+          {/* Tab toggle */}
+          <div style={{display:'flex',background:'#F2F0EC',borderRadius:12,padding:4,marginBottom:28}}>
+            {[['login','Sign In'],['signup','Create Account']].map(([v,l])=>(
+              <button key={v} onClick={()=>{setAuthView(v);setAuthErr('');}} style={{flex:1,padding:'9px 0',borderRadius:9,border:'none',cursor:'pointer',fontSize:14,fontWeight:600,transition:'all .2s',background:authView===v?'#fff':'transparent',color:authView===v?'#1A1A18':'#ABA9A3',boxShadow:authView===v?'0 1px 4px rgba(0,0,0,.08)':'none'}}>{l}</button>
+            ))}
+          </div>
+
+          {/* Fields */}
+          <div style={{marginBottom:14}}>
+            <label style={{fontSize:11,fontWeight:700,textTransform:'uppercase',letterSpacing:'0.5px',color:'#6A6860',display:'block',marginBottom:6}}>Email</label>
+            <input type="email" value={authForm.email} onChange={e=>setAuthForm(p=>({...p,email:e.target.value}))} onKeyDown={e=>e.key==='Enter'&&(authView==='login'?handleSignIn():handleSignUp())} placeholder="you@example.com" style={{width:'100%',background:'#F7F6F3',border:'1.5px solid #E8E5E0',borderRadius:10,padding:'11px 14px',fontSize:14,color:'#1A1A18',fontFamily:'inherit',outline:'none'}}
+              onFocus={e=>e.target.style.borderColor='#FF6B35'} onBlur={e=>e.target.style.borderColor='#E8E5E0'}/>
+          </div>
+          <div style={{marginBottom:authErr?16:24}}>
+            <label style={{fontSize:11,fontWeight:700,textTransform:'uppercase',letterSpacing:'0.5px',color:'#6A6860',display:'block',marginBottom:6}}>Password</label>
+            <input type="password" value={authForm.password} onChange={e=>setAuthForm(p=>({...p,password:e.target.value}))} onKeyDown={e=>e.key==='Enter'&&(authView==='login'?handleSignIn():handleSignUp())} placeholder={authView==='signup'?'Min. 6 characters':'••••••••'} style={{width:'100%',background:'#F7F6F3',border:'1.5px solid #E8E5E0',borderRadius:10,padding:'11px 14px',fontSize:14,color:'#1A1A18',fontFamily:'inherit',outline:'none'}}
+              onFocus={e=>e.target.style.borderColor='#FF6B35'} onBlur={e=>e.target.style.borderColor='#E8E5E0'}/>
+          </div>
+
+          {/* Error */}
+          {authErr && <div style={{background:'#FFF0ED',border:'1px solid #FFCFBF',borderRadius:10,padding:'10px 14px',fontSize:13,color:'#CC3300',marginBottom:16}}>{authErr}</div>}
+
+          {/* Submit */}
+          <button onClick={authView==='login'?handleSignIn:handleSignUp} disabled={authLoad} style={{width:'100%',background:'#FF6B35',border:'none',borderRadius:100,padding:'13px 0',fontSize:15,fontWeight:700,color:'white',cursor:authLoad?'not-allowed':'pointer',opacity:authLoad?.7:1,transition:'opacity .2s'}}>
+            {authLoad?(authView==='login'?'Signing in…':'Creating account…'):(authView==='login'?'Sign In →':'Create Account →')}
+          </button>
+        </div>
+
+        <p style={{textAlign:'center',fontSize:12,color:'#ABA9A3',marginTop:20}}>
+          Your data is private and encrypted. Each account is completely separate.
+        </p>
+      </div>
+    </div>
+  );
 
   const {projects,tasks,archived}=data;
   const T=dm
@@ -381,6 +507,11 @@ export default function OneList(){
           <button key={t} onClick={a} title={t} style={{width:34,height:34,borderRadius:8,border:`1px solid ${T.brd}`,background:on?'#FF6B35':T.sur2,cursor:'pointer',fontSize:16,display:'flex',alignItems:'center',justifyContent:'center',color:on?'white':T.txt}}>{i}</button>
         ))}
         <button onClick={()=>{setTaskForm(BLANK);setEditTid(null);setModal('add-task');}} style={{background:'#FF6B35',border:'none',borderRadius:100,padding:'8px 16px',fontSize:13,fontWeight:700,color:'white',cursor:'pointer'}}>+ Task</button>
+        {/* User + logout */}
+        <div style={{display:'flex',alignItems:'center',gap:8,marginLeft:4,paddingLeft:12,borderLeft:'1px solid #E8E5E0'}}>
+          <span style={{fontSize:12,color:'#ABA9A3',maxWidth:140,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}} title={session.email}>{session.email}</span>
+          <button onClick={handleSignOut} title="Sign out" style={{width:30,height:30,borderRadius:8,border:'1px solid #E8E5E0',background:'#F2F0EC',cursor:'pointer',fontSize:13,display:'flex',alignItems:'center',justifyContent:'center',color:'#6A6860'}}>↪</button>
+        </div>
       </div>
 
       {/* BODY */}
