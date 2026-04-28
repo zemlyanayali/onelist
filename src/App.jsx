@@ -110,12 +110,15 @@ function Lbl({children}){
   return <label style={{fontSize:11,fontWeight:700,textTransform:'uppercase',letterSpacing:'0.5px',display:'block',marginBottom:6,color:'#888'}}>{children}</label>;
 }
 
-function TaskCard({task,T,dm,getProj,expTask,setExpTask,toggleDone,toggleSub,addToToday,delTask,openEdit}){
+function TaskCard({task,T,dm,getProj,expTask,setExpTask,toggleDone,toggleSub,addToToday,delTask,openEdit,moveTask}){
   const proj=task.projectId?getProj(task.projectId):null;
   const exp=expTask[task.id];
   const hasSubs=(task.subtasks||[]).length>0;
   return (
-    <div style={{background:T.sur,border:`1px solid ${T.brd}`,borderRadius:12,padding:'11px 14px',marginBottom:8,borderLeft:`3px solid ${proj?.color||T.brd}`,transition:'box-shadow .15s'}}
+    <div
+      draggable
+      onDragStart={e=>{e.dataTransfer.setData('taskId',task.id);e.dataTransfer.setData('fromProject',task.projectId||'misc');}}
+      style={{background:T.sur,border:`1px solid ${T.brd}`,borderRadius:12,padding:'11px 14px',marginBottom:8,borderLeft:`3px solid ${proj?.color||T.brd}`,transition:'box-shadow .15s',cursor:'grab'}}
       onMouseEnter={e=>e.currentTarget.style.boxShadow=dm?'0 2px 16px rgba(0,0,0,.4)':'0 2px 16px rgba(0,0,0,.06)'}
       onMouseLeave={e=>e.currentTarget.style.boxShadow='none'}>
       <div style={{display:'flex',alignItems:'flex-start',gap:10}}>
@@ -130,9 +133,7 @@ function TaskCard({task,T,dm,getProj,expTask,setExpTask,toggleDone,toggleSub,add
             <div style={{marginTop:8,paddingLeft:2}}>
               {task.subtasks.map(s=>(
                 <div key={s.id} style={{display:'flex',alignItems:'center',gap:8,padding:'4px 0'}}>
-                  <div onClick={()=>toggleSub(task.id,s.id)} style={{width:16,height:16,borderRadius:4,border:s.done?'none':`1.5px solid ${T.brd}`,background:s.done?(proj?.color||'#34C759'):'transparent',cursor:'pointer',flexShrink:0,display:'flex',alignItems:'center',justifyContent:'center',fontSize:9,color:'white'}}>
-                    {s.done&&'✓'}
-                  </div>
+                  <div onClick={()=>toggleSub(task.id,s.id)} style={{width:16,height:16,borderRadius:4,border:s.done?'none':`1.5px solid ${T.brd}`,background:s.done?(proj?.color||'#34C759'):'transparent',cursor:'pointer',flexShrink:0,display:'flex',alignItems:'center',justifyContent:'center',fontSize:9,color:'white'}}>{s.done&&'✓'}</div>
                   <span style={{fontSize:12,color:s.done?T.txt3:T.txt2,textDecoration:s.done?'line-through':'none'}}>{s.title}</span>
                 </div>
               ))}
@@ -140,15 +141,16 @@ function TaskCard({task,T,dm,getProj,expTask,setExpTask,toggleDone,toggleSub,add
           )}
           {task.notes&&!exp&&<div style={{fontSize:11,color:T.txt3,marginTop:3,fontStyle:'italic',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{task.notes}</div>}
         </div>
-        <div style={{display:'flex',gap:4,flexShrink:0,opacity:.65}} onMouseEnter={e=>e.currentTarget.style.opacity='1'} onMouseLeave={e=>e.currentTarget.style.opacity='.65'}>
-          <button onClick={()=>openEdit(task)} style={{width:26,height:26,borderRadius:6,border:`1px solid ${T.brd}`,background:T.sur2,cursor:'pointer',fontSize:12,display:'flex',alignItems:'center',justifyContent:'center',color:T.txt2}}>✎</button>
-          <button onClick={()=>addToToday(task.id)} style={{width:26,height:26,borderRadius:6,border:`1px solid ${T.brd}`,background:T.sur2,cursor:'pointer',fontSize:13,display:'flex',alignItems:'center',justifyContent:'center'}}>☆</button>
-          <button onClick={()=>delTask(task.id)} style={{width:26,height:26,borderRadius:6,border:`1px solid ${T.brd}`,background:T.sur2,cursor:'pointer',fontSize:12,display:'flex',alignItems:'center',justifyContent:'center',color:'#FF3B30'}}>✕</button>
+        <div style={{display:'flex',gap:4,flexShrink:0,opacity:.6}} onMouseEnter={e=>e.currentTarget.style.opacity='1'} onMouseLeave={e=>e.currentTarget.style.opacity='.6'}>
+          <button onClick={()=>openEdit(task)} title="Edit / move project" style={{width:26,height:26,borderRadius:6,border:`1px solid ${T.brd}`,background:T.sur2,cursor:'pointer',fontSize:12,display:'flex',alignItems:'center',justifyContent:'center',color:T.txt2}}>✎</button>
+          {!task.inToday&&<button onClick={()=>addToToday(task.id)} title="Add to Today" style={{width:26,height:26,borderRadius:6,border:`1px solid ${T.brd}`,background:T.sur2,cursor:'pointer',fontSize:13,display:'flex',alignItems:'center',justifyContent:'center'}}>☆</button>}
+          <button onClick={()=>delTask(task.id)} title="Delete" style={{width:26,height:26,borderRadius:6,border:`1px solid ${T.brd}`,background:T.sur2,cursor:'pointer',fontSize:12,display:'flex',alignItems:'center',justifyContent:'center',color:'#FF3B30'}}>✕</button>
         </div>
       </div>
     </div>
   );
 }
+
 
 export default function OneList(){
   const TODAY=new Date();
@@ -163,7 +165,7 @@ export default function OneList(){
   const [view,setView]=useState('dashboard');
   const [modal,setModal]=useState(null);
   const [sbOpen,setSbOpen]=useState(true);
-  const [calMin,setCalMin]=useState(true);
+  const [calMin,setCalMin]=useState(false);  // calendar open by default
   const [expProj,setExpProj]=useState({});
   const [expTask,setExpTask]=useState({});
   const [expToday,setExpToday]=useState({});
@@ -184,12 +186,35 @@ export default function OneList(){
   const [srchQ,setSrchQ]=useState('');
   const [dragId,setDragId]=useState(null);
   const [dragOv,setDragOv]=useState(null);
+  const [dragTask,setDragTask]=useState(null); // {id, fromProjectId} for cross-project drag
+  const [showPwd,setShowPwd]=useState(false);
+  const [inlineAdd,setInlineAdd]=useState({}); // {sectionKey: inputText}
   const recRef  = useRef(null);
   const dbRowId = useRef(null); // tracks Supabase row id
 
   // load — check saved session first, then load data
   useEffect(()=>{
     (async()=>{
+      // ── Handle email confirmation redirect (Supabase puts tokens in URL hash)
+      const hash = window.location.hash;
+      if (hash && hash.includes('access_token')) {
+        const params = new URLSearchParams(hash.slice(1));
+        const access_token = params.get('access_token');
+        const refresh_token = params.get('refresh_token');
+        if (access_token) {
+          try {
+            const r = await fetch(`${SB_URL}/auth/v1/user`, { headers: { apikey: SB_KEY, Authorization: `Bearer ${access_token}` } });
+            const user = await r.json();
+            const sess = { access_token, refresh_token, user_id: user.id, email: user.email };
+            localStorage.setItem('onelist_session', JSON.stringify(sess));
+            window.history.replaceState(null, '', window.location.pathname); // clean URL
+            setSession(sess);
+            const row = await sbLoad(sess.access_token, sess.user_id);
+            if (row?.payload) { dbRowId.current=row.id; setData(row.payload); } else setData(DEFAULTS);
+            setLoading(false); return;
+          } catch {}
+        }
+      }
       try {
         const saved = JSON.parse(localStorage.getItem('onelist_session')||'null');
         if (saved?.access_token) {
@@ -295,6 +320,19 @@ export default function OneList(){
     for(const p of(data?.projects||[]))if(quickAdd.toLowerCase().includes(p.name.toLowerCase())){pid=p.id;break;}
     upd(prev=>({...prev,tasks:[...prev.tasks,{id:genId(),title:quickAdd.trim(),projectId:pid,subtasks:[],notes:'',done:false,inToday:true,pinned:false,archived:false,completedAt:null,createdAt:Date.now(),recur:''}]}));
     setQuickAdd('');
+  };
+
+  // Inline add: section = 'misc' | projectId
+  const inlineAddTask=(section,title)=>{
+    if(!title.trim())return;
+    const projectId=section==='misc'?null:section;
+    upd(prev=>({...prev,tasks:[{id:genId(),title:title.trim(),projectId,subtasks:[],notes:'',done:false,inToday:false,pinned:false,archived:false,completedAt:null,createdAt:Date.now(),recur:''},...prev.tasks]}));
+    setInlineAdd(p=>({...p,[section]:''}));
+  };
+
+  // Cross-project drag: move task to a different project
+  const moveTask=(taskId, toProjectId)=>{
+    upd(prev=>({...prev,tasks:prev.tasks.map(t=>t.id===taskId?{...t,projectId:toProjectId||null}:t)}));
   };
 
   const saveProj=()=>{
@@ -408,7 +446,7 @@ export default function OneList(){
     setSession(null); setData(null); dbRowId.current=null;
   };
 
-  if(loading) return <div style={{display:'flex',alignItems:'center',justifyContent:'center',minHeight:'100vh',fontSize:14,color:'#999',fontFamily:'system-ui'}}>Loading OneList…</div>;
+  if(loading || (session && !data)) return <div style={{display:'flex',alignItems:'center',justifyContent:'center',minHeight:'100vh',fontSize:14,color:'#999',fontFamily:'system-ui'}}>Loading OneList…</div>;
 
   // ── Login / Signup screen ────────────────────────────────────────────────
   if (!session) return (
@@ -440,8 +478,11 @@ export default function OneList(){
           </div>
           <div style={{marginBottom:authErr?16:24}}>
             <label style={{fontSize:11,fontWeight:700,textTransform:'uppercase',letterSpacing:'0.5px',color:'#6A6860',display:'block',marginBottom:6}}>Password</label>
-            <input type="password" value={authForm.password} onChange={e=>setAuthForm(p=>({...p,password:e.target.value}))} onKeyDown={e=>e.key==='Enter'&&(authView==='login'?handleSignIn():handleSignUp())} placeholder={authView==='signup'?'Min. 6 characters':'••••••••'} style={{width:'100%',background:'#F7F6F3',border:'1.5px solid #E8E5E0',borderRadius:10,padding:'11px 14px',fontSize:14,color:'#1A1A18',fontFamily:'inherit',outline:'none'}}
-              onFocus={e=>e.target.style.borderColor='#FF6B35'} onBlur={e=>e.target.style.borderColor='#E8E5E0'}/>
+            <div style={{position:'relative'}}>
+              <input type={showPwd?'text':'password'} value={authForm.password} onChange={e=>setAuthForm(p=>({...p,password:e.target.value}))} onKeyDown={e=>e.key==='Enter'&&(authView==='login'?handleSignIn():handleSignUp())} placeholder={authView==='signup'?'Min. 6 characters':'••••••••'} style={{width:'100%',background:'#F7F6F3',border:'1.5px solid #E8E5E0',borderRadius:10,padding:'11px 44px 11px 14px',fontSize:14,color:'#1A1A18',fontFamily:'inherit',outline:'none'}}
+                onFocus={e=>e.target.style.borderColor='#FF6B35'} onBlur={e=>e.target.style.borderColor='#E8E5E0'}/>
+              <button onClick={()=>setShowPwd(p=>!p)} type="button" style={{position:'absolute',right:12,top:'50%',transform:'translateY(-50%)',background:'none',border:'none',cursor:'pointer',fontSize:16,color:'#ABA9A3',padding:2,lineHeight:1}}>{showPwd?'🙈':'👁'}</button>
+            </div>
           </div>
 
           {/* Error */}
@@ -667,10 +708,15 @@ export default function OneList(){
                   const active=tasks.filter(t=>t.projectId===proj.id&&!t.done&&!t.archived&&!t.inToday);
                   const exp=expProj[proj.id];
                   const shown=exp?active:active.slice(0,4);
+                  const isDropTarget=dragTask&&dragTask!==proj.id;
                   return (
-                    <div key={proj.id} style={{background:hl(proj.color),borderRadius:16,padding:18,border:`1.5px solid ${hm(proj.color)}`,position:'relative',transition:'transform .2s,box-shadow .2s'}}
-                      onMouseEnter={e=>{e.currentTarget.style.transform='translateY(-2px)';e.currentTarget.style.boxShadow='0 8px 32px rgba(0,0,0,.09)';}}
-                      onMouseLeave={e=>{e.currentTarget.style.transform='';e.currentTarget.style.boxShadow='';}}>
+                    <div key={proj.id}
+                      onDragOver={e=>{e.preventDefault();setDragTask(proj.id);}}
+                      onDragLeave={()=>setDragTask(null)}
+                      onDrop={e=>{e.preventDefault();const tid=e.dataTransfer.getData('taskId');if(tid)moveTask(tid,proj.id);setDragTask(null);}}
+                      style={{background:hl(proj.color),borderRadius:16,padding:18,border:`1.5px solid ${isDropTarget?proj.color:hm(proj.color)}`,position:'relative',transition:'all .2s',boxShadow:isDropTarget?`0 0 0 3px ${proj.color}44`:''}}
+                      onMouseEnter={e=>{if(!dragTask){e.currentTarget.style.transform='translateY(-2px)';e.currentTarget.style.boxShadow='0 8px 32px rgba(0,0,0,.09)';}}}
+                      onMouseLeave={e=>{e.currentTarget.style.transform='';if(!dragTask)e.currentTarget.style.boxShadow='';}}>
                       <button onClick={()=>{setProjForm({name:proj.name,emoji:proj.emoji,color:proj.color});setEditPid(proj.id);setModal('edit-project');}} style={{position:'absolute',top:12,right:12,background:'none',border:'none',cursor:'pointer',fontSize:14,color:proj.color,opacity:.7}}>⚙</button>
                       <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:8,paddingRight:24}}>
                         <span style={{fontSize:26}}>{proj.emoji}</span>
@@ -686,23 +732,31 @@ export default function OneList(){
                         </div>
                       ))}
                       {active.length>4&&<button onClick={()=>setExpProj(p=>({...p,[proj.id]:!p[proj.id]}))} style={{background:'none',border:'none',cursor:'pointer',fontSize:11,fontWeight:700,color:proj.color,marginTop:6,padding:0}}>{exp?'▲ Less':`▼ +${active.length-4} more`}</button>}
+                      {/* Inline quick-add */}
                       <div style={{display:'flex',gap:6,marginTop:10}}>
-                        <button onClick={()=>{setTaskForm({...BLANK,projectId:proj.id});setEditTid(null);setModal('add-task');}} style={{flex:1,background:proj.color+'22',border:'none',borderRadius:8,padding:7,fontSize:11,fontWeight:700,color:proj.color,cursor:'pointer'}}>+ Task</button>
-                        <button onClick={()=>setView(`project-${proj.id}`)} style={{flex:2,background:proj.color+'22',border:'none',borderRadius:8,padding:7,fontSize:12,fontWeight:700,color:proj.color,cursor:'pointer'}}>Open →</button>
+                        <input value={inlineAdd[proj.id]||''} onChange={e=>setInlineAdd(p=>({...p,[proj.id]:e.target.value}))} onKeyDown={e=>e.key==='Enter'&&(inlineAddTask(proj.id,inlineAdd[proj.id]||''))} placeholder="Add task…" style={{flex:1,background:proj.color+'15',border:`1px solid ${proj.color}33`,borderRadius:8,padding:'6px 10px',fontSize:12,color:proj.color,fontFamily:'inherit',outline:'none'}}/>
+                        <button onClick={()=>setView(`project-${proj.id}`)} style={{background:proj.color+'22',border:'none',borderRadius:8,padding:'6px 10px',fontSize:12,fontWeight:700,color:proj.color,cursor:'pointer',whiteSpace:'nowrap'}}>Open →</button>
                       </div>
                     </div>
                   );
                 })}
               </div>
 
-              {/* Misc */}
-              <div>
-                <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:12}}>
+              {/* Misc — drop zone + inline add */}
+              <div
+                onDragOver={e=>e.preventDefault()}
+                onDrop={e=>{e.preventDefault();const tid=e.dataTransfer.getData('taskId');if(tid)moveTask(tid,null);setDragTask(null);}}
+              >
+                <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:8}}>
                   <span style={{fontSize:11,fontWeight:700,color:T.txt3,textTransform:'uppercase',letterSpacing:'0.8px'}}>Miscellaneous · {miscTasks.filter(t=>!t.done).length} active</span>
-                  <button onClick={()=>{setTaskForm(BLANK);setEditTid(null);setModal('add-task');}} style={{background:'none',border:'none',cursor:'pointer',fontSize:13,fontWeight:600,color:'#FF6B35'}}>+ Add</button>
                 </div>
-                {miscTasks.length===0&&<div style={{fontSize:13,color:T.txt3,fontStyle:'italic',padding:'16px 0'}}>No miscellaneous tasks</div>}
-                {miscTasks.map(t=><TaskCard key={t.id} task={t} T={T} dm={dm} getProj={getProj} expTask={expTask} setExpTask={setExpTask} toggleDone={toggleDone} toggleSub={toggleSub} addToToday={addToToday} delTask={delTask} openEdit={openEdit}/>)}
+                {/* Inline quick-add for misc */}
+                <div style={{display:'flex',gap:6,marginBottom:12}}>
+                  <input value={inlineAdd['misc']||''} onChange={e=>setInlineAdd(p=>({...p,misc:e.target.value}))} onKeyDown={e=>e.key==='Enter'&&inlineAddTask('misc',inlineAdd['misc']||'')} placeholder="Add miscellaneous task…" style={{flex:1,background:T.sur,border:`1.5px solid ${T.brd}`,borderRadius:8,padding:'8px 12px',fontSize:13,color:T.txt,fontFamily:'inherit',outline:'none'}}/>
+                  <button onClick={()=>inlineAddTask('misc',inlineAdd['misc']||'')} style={{background:'#FF6B35',border:'none',borderRadius:8,padding:'8px 12px',cursor:'pointer',fontSize:16,color:'white',fontWeight:700}}>+</button>
+                </div>
+                {miscTasks.length===0&&<div style={{fontSize:13,color:T.txt3,fontStyle:'italic',padding:'8px 0'}}>No miscellaneous tasks — drag any task here to remove its project</div>}
+                {miscTasks.map(t=><TaskCard key={t.id} task={t} T={T} dm={dm} getProj={getProj} expTask={expTask} setExpTask={setExpTask} toggleDone={toggleDone} toggleSub={toggleSub} addToToday={addToToday} delTask={delTask} openEdit={openEdit} moveTask={moveTask}/>)}
               </div>
             </div>
           )}
@@ -721,15 +775,19 @@ export default function OneList(){
                   </div>
                   <div style={{marginLeft:'auto',display:'flex',gap:8}}>
                     <button onClick={()=>{setProjForm({name:currentProj.name,emoji:currentProj.emoji,color:currentProj.color});setEditPid(currentProj.id);setModal('edit-project');}} style={{background:currentProj.color+'22',border:'none',borderRadius:100,padding:'9px 14px',fontSize:12,fontWeight:700,color:currentProj.color,cursor:'pointer'}}>⚙ Edit</button>
-                    <button onClick={()=>{setTaskForm({...BLANK,projectId:currentProj.id});setEditTid(null);setModal('add-task');}} style={{background:currentProj.color,border:'none',borderRadius:100,padding:'9px 18px',fontSize:13,fontWeight:700,color:'white',cursor:'pointer'}}>+ Task</button>
                   </div>
                 </div>
-                {active.length===0&&<div style={{fontSize:13,color:T.txt3,fontStyle:'italic',padding:'20px 0'}}>No active tasks here — check Today! 🎉</div>}
-                {active.map(t=><TaskCard key={t.id} task={t} T={T} dm={dm} getProj={getProj} expTask={expTask} setExpTask={setExpTask} toggleDone={toggleDone} toggleSub={toggleSub} addToToday={addToToday} delTask={delTask} openEdit={openEdit}/>)}
+                {/* Inline quick-add — auto-assigned to this project */}
+                <div style={{display:'flex',gap:8,marginBottom:16}}>
+                  <input value={inlineAdd[currentProj.id]||''} onChange={e=>setInlineAdd(p=>({...p,[currentProj.id]:e.target.value}))} onKeyDown={e=>e.key==='Enter'&&inlineAddTask(currentProj.id,inlineAdd[currentProj.id]||'')} placeholder={`Add task to ${currentProj.name}…`} style={{flex:1,background:hl(currentProj.color),border:`1.5px solid ${hm(currentProj.color)}`,borderRadius:10,padding:'10px 14px',fontSize:14,color:currentProj.color,fontFamily:'inherit',outline:'none'}}/>
+                  <button onClick={()=>inlineAddTask(currentProj.id,inlineAdd[currentProj.id]||'')} style={{background:currentProj.color,border:'none',borderRadius:10,padding:'10px 16px',cursor:'pointer',fontSize:18,color:'white',fontWeight:700}}>+</button>
+                </div>
+                {active.length===0&&<div style={{fontSize:13,color:T.txt3,fontStyle:'italic',padding:'12px 0'}}>No active tasks — type above to add one!</div>}
+                {active.map(t=><TaskCard key={t.id} task={t} T={T} dm={dm} getProj={getProj} expTask={expTask} setExpTask={setExpTask} toggleDone={toggleDone} toggleSub={toggleSub} addToToday={addToToday} delTask={delTask} openEdit={openEdit} moveTask={moveTask}/>)}
                 {done.length>0&&(
                   <div>
                     <div style={{fontSize:11,fontWeight:700,color:T.txt3,textTransform:'uppercase',letterSpacing:'0.8px',marginTop:20,marginBottom:12}}>Completed ({done.length})</div>
-                    {done.map(t=><TaskCard key={t.id} task={t} T={T} dm={dm} getProj={getProj} expTask={expTask} setExpTask={setExpTask} toggleDone={toggleDone} toggleSub={toggleSub} addToToday={addToToday} delTask={delTask} openEdit={openEdit}/>)}
+                    {done.map(t=><TaskCard key={t.id} task={t} T={T} dm={dm} getProj={getProj} expTask={expTask} setExpTask={setExpTask} toggleDone={toggleDone} toggleSub={toggleSub} addToToday={addToToday} delTask={delTask} openEdit={openEdit} moveTask={moveTask}/>)}
                   </div>
                 )}
               </div>
