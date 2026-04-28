@@ -110,25 +110,57 @@ function Lbl({children}){
   return <label style={{fontSize:11,fontWeight:700,textTransform:'uppercase',letterSpacing:'0.5px',display:'block',marginBottom:6,color:'#888'}}>{children}</label>;
 }
 
-function TaskCard({task,T,dm,getProj,expTask,setExpTask,toggleDone,toggleSub,addToToday,delTask,openEdit,moveTask}){
+function TaskCard({task,T,dm,getProj,expTask,setExpTask,toggleDone,toggleSub,addToToday,delTask,openEdit,moveTask,onRename}){
   const proj=task.projectId?getProj(task.projectId):null;
   const exp=expTask[task.id];
   const hasSubs=(task.subtasks||[]).length>0;
+  const [editing,setEditing]=useState(false);
+  const [editVal,setEditVal]=useState(task.title);
+  const inputRef=useRef(null);
+
+  const startEdit=e=>{
+    e.stopPropagation();
+    if(task.done)return;
+    setEditVal(task.title);
+    setEditing(true);
+    setTimeout(()=>inputRef.current?.focus(),0);
+  };
+
+  const commitEdit=()=>{
+    if(editVal.trim()&&editVal.trim()!==task.title)onRename(task.id,editVal.trim());
+    setEditing(false);
+  };
+
   return (
     <div
-      draggable
-      onDragStart={e=>{e.dataTransfer.setData('taskId',task.id);e.dataTransfer.setData('fromProject',task.projectId||'misc');}}
-      style={{background:T.sur,border:`1px solid ${T.brd}`,borderRadius:12,padding:'11px 14px',marginBottom:8,borderLeft:`3px solid ${proj?.color||T.brd}`,transition:'box-shadow .15s',cursor:'grab'}}
+      draggable={!editing}
+      onDragStart={e=>{if(editing){e.preventDefault();return;}e.dataTransfer.setData('taskId',task.id);e.dataTransfer.setData('fromProject',task.projectId||'misc');}}
+      style={{background:T.sur,border:`1px solid ${T.brd}`,borderRadius:12,padding:'11px 14px',marginBottom:8,borderLeft:`3px solid ${proj?.color||T.brd}`,transition:'box-shadow .15s',cursor:editing?'text':'grab'}}
       onMouseEnter={e=>e.currentTarget.style.boxShadow=dm?'0 2px 16px rgba(0,0,0,.4)':'0 2px 16px rgba(0,0,0,.06)'}
       onMouseLeave={e=>e.currentTarget.style.boxShadow='none'}>
       <div style={{display:'flex',alignItems:'flex-start',gap:10}}>
         <Chk done={task.done} color={proj?.color} onClick={e=>{e.stopPropagation();toggleDone(task.id);}}/>
         <div style={{flex:1,minWidth:0}}>
-          <div onClick={()=>hasSubs&&setExpTask(p=>({...p,[task.id]:!p[task.id]}))} style={{fontSize:14,fontWeight:500,color:task.done?T.txt3:T.txt,textDecoration:task.done?'line-through':'none',lineHeight:1.4,cursor:hasSubs?'pointer':'default'}}>
-            {task.title}
-            {hasSubs&&<span style={{fontSize:11,color:T.txt3,marginLeft:8,fontWeight:400}}>{task.subtasks.filter(s=>s.done).length}/{task.subtasks.length} {exp?'▲':'▼'}</span>}
-            {task.recur&&<span style={{fontSize:10,color:T.txt3,marginLeft:6}}>🔁 {task.recur}</span>}
-          </div>
+          {editing?(
+            <input
+              ref={inputRef}
+              value={editVal}
+              onChange={e=>setEditVal(e.target.value)}
+              onBlur={commitEdit}
+              onKeyDown={e=>{if(e.key==='Enter')commitEdit();if(e.key==='Escape'){setEditing(false);}}}
+              style={{width:'100%',background:'transparent',border:'none',borderBottom:`1.5px solid ${proj?.color||'#FF6B35'}`,fontSize:14,fontWeight:500,color:T.txt,fontFamily:'inherit',outline:'none',padding:'1px 0',lineHeight:1.4}}
+            />
+          ):(
+            <div style={{display:'flex',alignItems:'baseline',gap:6,minWidth:0}}>
+              <span
+                onClick={startEdit}
+                title="Click to rename"
+                style={{fontSize:14,fontWeight:500,color:task.done?T.txt3:T.txt,textDecoration:task.done?'line-through':'none',lineHeight:1.4,cursor:task.done?'default':'text',flex:1,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}
+              >{task.title}</span>
+              {hasSubs&&<span onClick={e=>{e.stopPropagation();setExpTask(p=>({...p,[task.id]:!p[task.id]}));}} style={{fontSize:11,color:T.txt3,fontWeight:400,flexShrink:0,cursor:'pointer'}}>{task.subtasks.filter(s=>s.done).length}/{task.subtasks.length} {exp?'▲':'▼'}</span>}
+              {task.recur&&<span style={{fontSize:10,color:T.txt3,flexShrink:0}}>🔁 {task.recur}</span>}
+            </div>
+          )}
           {exp&&hasSubs&&(
             <div style={{marginTop:8,paddingLeft:2}}>
               {task.subtasks.map(s=>(
@@ -142,7 +174,7 @@ function TaskCard({task,T,dm,getProj,expTask,setExpTask,toggleDone,toggleSub,add
           {task.notes&&!exp&&<div style={{fontSize:11,color:T.txt3,marginTop:3,fontStyle:'italic',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{task.notes}</div>}
         </div>
         <div style={{display:'flex',gap:4,flexShrink:0,opacity:.6}} onMouseEnter={e=>e.currentTarget.style.opacity='1'} onMouseLeave={e=>e.currentTarget.style.opacity='.6'}>
-          <button onClick={()=>openEdit(task)} title="Edit / move project" style={{width:26,height:26,borderRadius:6,border:`1px solid ${T.brd}`,background:T.sur2,cursor:'pointer',fontSize:12,display:'flex',alignItems:'center',justifyContent:'center',color:T.txt2}}>✎</button>
+          <button onClick={()=>openEdit(task)} title="Edit details" style={{width:26,height:26,borderRadius:6,border:`1px solid ${T.brd}`,background:T.sur2,cursor:'pointer',fontSize:12,display:'flex',alignItems:'center',justifyContent:'center',color:T.txt2}}>✎</button>
           {!task.inToday&&<button onClick={()=>addToToday(task.id)} title="Add to Today" style={{width:26,height:26,borderRadius:6,border:`1px solid ${T.brd}`,background:T.sur2,cursor:'pointer',fontSize:13,display:'flex',alignItems:'center',justifyContent:'center'}}>☆</button>}
           <button onClick={()=>delTask(task.id)} title="Delete" style={{width:26,height:26,borderRadius:6,border:`1px solid ${T.brd}`,background:T.sur2,cursor:'pointer',fontSize:12,display:'flex',alignItems:'center',justifyContent:'center',color:'#FF3B30'}}>✕</button>
         </div>
@@ -299,6 +331,7 @@ export default function OneList(){
   })}));
 
   const togglePin=id=>upd(prev=>({...prev,tasks:prev.tasks.map(t=>t.id===id?{...t,pinned:!t.pinned}:t)}));
+  const renameTask=(id,title)=>upd(prev=>({...prev,tasks:prev.tasks.map(t=>t.id===id?{...t,title}:t)}));
   const addToToday=id=>upd(prev=>({...prev,tasks:prev.tasks.map(t=>t.id===id?{...t,inToday:true}:t)}));
   const remFromToday=id=>upd(prev=>({...prev,tasks:prev.tasks.map(t=>t.id===id?{...t,inToday:false,pinned:false}:t)}));
   const delTask=id=>upd(prev=>({...prev,tasks:prev.tasks.filter(t=>t.id!==id)}));
@@ -703,7 +736,7 @@ export default function OneList(){
                 <button onClick={()=>{setProjForm({name:'',emoji:'📁',color:'#3B82F6'});setEditPid(null);setModal('add-project');}} style={{background:'none',border:'none',cursor:'pointer',fontSize:13,fontWeight:600,color:'#FF6B35'}}>+ New Project</button>
               </div>
 
-              <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(210px,1fr))',gap:14,marginBottom:28}}>
+              <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(220px,1fr))',gap:14,marginBottom:28}}>
                 {projects.map(proj=>{
                   const active=tasks.filter(t=>t.projectId===proj.id&&!t.done&&!t.archived&&!t.inToday);
                   const exp=expProj[proj.id];
@@ -714,27 +747,33 @@ export default function OneList(){
                       onDragOver={e=>{e.preventDefault();setDragTask(proj.id);}}
                       onDragLeave={()=>setDragTask(null)}
                       onDrop={e=>{e.preventDefault();const tid=e.dataTransfer.getData('taskId');if(tid)moveTask(tid,proj.id);setDragTask(null);}}
-                      style={{background:hl(proj.color),borderRadius:16,padding:18,border:`1.5px solid ${isDropTarget?proj.color:hm(proj.color)}`,position:'relative',transition:'all .2s',boxShadow:isDropTarget?`0 0 0 3px ${proj.color}44`:''}}
+                      style={{background:hl(proj.color),borderRadius:16,padding:18,border:`1.5px solid ${isDropTarget?proj.color:hm(proj.color)}`,position:'relative',transition:'all .2s',boxShadow:isDropTarget?`0 0 0 3px ${proj.color}44`:'',display:'flex',flexDirection:'column',minHeight:180}}
                       onMouseEnter={e=>{if(!dragTask){e.currentTarget.style.transform='translateY(-2px)';e.currentTarget.style.boxShadow='0 8px 32px rgba(0,0,0,.09)';}}}
                       onMouseLeave={e=>{e.currentTarget.style.transform='';if(!dragTask)e.currentTarget.style.boxShadow='';}}>
-                      <button onClick={()=>{setProjForm({name:proj.name,emoji:proj.emoji,color:proj.color});setEditPid(proj.id);setModal('edit-project');}} style={{position:'absolute',top:12,right:12,background:'none',border:'none',cursor:'pointer',fontSize:14,color:proj.color,opacity:.7}}>⚙</button>
-                      <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:8,paddingRight:24}}>
-                        <span style={{fontSize:26}}>{proj.emoji}</span>
-                        <span style={{fontSize:11,fontWeight:700,padding:'3px 8px',borderRadius:100,background:proj.color+'22',color:proj.color}}>{active.length} task{active.length!==1?'s':''}</span>
-                      </div>
-                      <div style={{fontSize:17,fontWeight:800,color:proj.color,marginBottom:10,fontFamily:"'Lora',Georgia,serif"}}>{proj.name}</div>
-                      {shown.length===0&&<div style={{fontSize:12,color:proj.color+'88',fontStyle:'italic',marginBottom:8}}>All done or in Today! 🎉</div>}
-                      {shown.map((t,i)=>(
-                        <div key={t.id} style={{fontSize:12,color:proj.color+'AA',padding:'4px 0',borderTop:i===0?`1px solid ${proj.color}25`:'none',display:'flex',alignItems:'center',gap:6}}>
-                          <div style={{width:5,height:5,borderRadius:'50%',background:proj.color,flexShrink:0}}/>
-                          <span style={{overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',flex:1}}>{t.title}</span>
-                          {t.subtasks.length>0&&<span style={{fontSize:10,opacity:.6}}>{t.subtasks.filter(s=>s.done).length}/{t.subtasks.length}</span>}
+                      {/* Header row */}
+                      <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:6}}>
+                        <span style={{fontSize:22}}>{proj.emoji}</span>
+                        <div style={{display:'flex',alignItems:'center',gap:6}}>
+                          <span style={{fontSize:11,fontWeight:700,padding:'2px 7px',borderRadius:100,background:proj.color+'22',color:proj.color}}>{active.length}</span>
+                          <button onClick={()=>{setProjForm({name:proj.name,emoji:proj.emoji,color:proj.color});setEditPid(proj.id);setModal('edit-project');}} style={{background:'none',border:'none',cursor:'pointer',fontSize:13,color:proj.color,opacity:.6,padding:0,lineHeight:1}}>⚙</button>
                         </div>
-                      ))}
-                      {active.length>4&&<button onClick={()=>setExpProj(p=>({...p,[proj.id]:!p[proj.id]}))} style={{background:'none',border:'none',cursor:'pointer',fontSize:11,fontWeight:700,color:proj.color,marginTop:6,padding:0}}>{exp?'▲ Less':`▼ +${active.length-4} more`}</button>}
-                      {/* Inline quick-add */}
-                      <div style={{display:'flex',gap:6,marginTop:10}}>
-                        <input value={inlineAdd[proj.id]||''} onChange={e=>setInlineAdd(p=>({...p,[proj.id]:e.target.value}))} onKeyDown={e=>e.key==='Enter'&&(inlineAddTask(proj.id,inlineAdd[proj.id]||''))} placeholder="Add task…" style={{flex:1,background:proj.color+'15',border:`1px solid ${proj.color}33`,borderRadius:8,padding:'6px 10px',fontSize:12,color:proj.color,fontFamily:'inherit',outline:'none'}}/>
+                      </div>
+                      <div style={{fontSize:16,fontWeight:800,color:proj.color,marginBottom:10,fontFamily:"'Lora',Georgia,serif"}}>{proj.name}</div>
+                      {/* Task previews — grow to fill */}
+                      <div style={{flex:1}}>
+                        {shown.length===0&&<div style={{fontSize:12,color:proj.color+'77',fontStyle:'italic',marginBottom:6}}>All done! 🎉</div>}
+                        {shown.map((t,i)=>(
+                          <div key={t.id} style={{fontSize:12,color:proj.color+'BB',padding:'3px 0',borderTop:i===0?`1px solid ${proj.color}20`:'none',display:'flex',alignItems:'center',gap:5}}>
+                            <div style={{width:4,height:4,borderRadius:'50%',background:proj.color,flexShrink:0}}/>
+                            <span style={{overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',flex:1}}>{t.title}</span>
+                            {t.subtasks.length>0&&<span style={{fontSize:10,opacity:.55,flexShrink:0}}>{t.subtasks.filter(s=>s.done).length}/{t.subtasks.length}</span>}
+                          </div>
+                        ))}
+                        {active.length>4&&<button onClick={()=>setExpProj(p=>({...p,[proj.id]:!p[proj.id]}))} style={{background:'none',border:'none',cursor:'pointer',fontSize:10,fontWeight:700,color:proj.color,marginTop:4,padding:0}}>{exp?'▲ Less':`▼ +${active.length-4} more`}</button>}
+                      </div>
+                      {/* Footer: quick-add + open */}
+                      <div style={{display:'flex',gap:6,marginTop:12}}>
+                        <input value={inlineAdd[proj.id]||''} onChange={e=>setInlineAdd(p=>({...p,[proj.id]:e.target.value}))} onKeyDown={e=>e.key==='Enter'&&inlineAddTask(proj.id,inlineAdd[proj.id]||'')} placeholder="Add task…" style={{flex:1,background:proj.color+'12',border:`1px solid ${proj.color}30`,borderRadius:8,padding:'6px 9px',fontSize:12,color:proj.color,fontFamily:'inherit',outline:'none'}}/>
                         <button onClick={()=>setView(`project-${proj.id}`)} style={{background:proj.color+'22',border:'none',borderRadius:8,padding:'6px 10px',fontSize:12,fontWeight:700,color:proj.color,cursor:'pointer',whiteSpace:'nowrap'}}>Open →</button>
                       </div>
                     </div>
@@ -756,7 +795,7 @@ export default function OneList(){
                   <button onClick={()=>inlineAddTask('misc',inlineAdd['misc']||'')} style={{background:'#FF6B35',border:'none',borderRadius:8,padding:'8px 12px',cursor:'pointer',fontSize:16,color:'white',fontWeight:700}}>+</button>
                 </div>
                 {miscTasks.length===0&&<div style={{fontSize:13,color:T.txt3,fontStyle:'italic',padding:'8px 0'}}>No miscellaneous tasks — drag any task here to remove its project</div>}
-                {miscTasks.map(t=><TaskCard key={t.id} task={t} T={T} dm={dm} getProj={getProj} expTask={expTask} setExpTask={setExpTask} toggleDone={toggleDone} toggleSub={toggleSub} addToToday={addToToday} delTask={delTask} openEdit={openEdit} moveTask={moveTask}/>)}
+                {miscTasks.map(t=><TaskCard key={t.id} task={t} T={T} dm={dm} getProj={getProj} expTask={expTask} setExpTask={setExpTask} toggleDone={toggleDone} toggleSub={toggleSub} addToToday={addToToday} delTask={delTask} openEdit={openEdit} moveTask={moveTask} onRename={renameTask}/>)}
               </div>
             </div>
           )}
@@ -783,11 +822,11 @@ export default function OneList(){
                   <button onClick={()=>inlineAddTask(currentProj.id,inlineAdd[currentProj.id]||'')} style={{background:currentProj.color,border:'none',borderRadius:10,padding:'10px 16px',cursor:'pointer',fontSize:18,color:'white',fontWeight:700}}>+</button>
                 </div>
                 {active.length===0&&<div style={{fontSize:13,color:T.txt3,fontStyle:'italic',padding:'12px 0'}}>No active tasks — type above to add one!</div>}
-                {active.map(t=><TaskCard key={t.id} task={t} T={T} dm={dm} getProj={getProj} expTask={expTask} setExpTask={setExpTask} toggleDone={toggleDone} toggleSub={toggleSub} addToToday={addToToday} delTask={delTask} openEdit={openEdit} moveTask={moveTask}/>)}
+                {active.map(t=><TaskCard key={t.id} task={t} T={T} dm={dm} getProj={getProj} expTask={expTask} setExpTask={setExpTask} toggleDone={toggleDone} toggleSub={toggleSub} addToToday={addToToday} delTask={delTask} openEdit={openEdit} moveTask={moveTask} onRename={renameTask}/>)}
                 {done.length>0&&(
                   <div>
                     <div style={{fontSize:11,fontWeight:700,color:T.txt3,textTransform:'uppercase',letterSpacing:'0.8px',marginTop:20,marginBottom:12}}>Completed ({done.length})</div>
-                    {done.map(t=><TaskCard key={t.id} task={t} T={T} dm={dm} getProj={getProj} expTask={expTask} setExpTask={setExpTask} toggleDone={toggleDone} toggleSub={toggleSub} addToToday={addToToday} delTask={delTask} openEdit={openEdit} moveTask={moveTask}/>)}
+                    {done.map(t=><TaskCard key={t.id} task={t} T={T} dm={dm} getProj={getProj} expTask={expTask} setExpTask={setExpTask} toggleDone={toggleDone} toggleSub={toggleSub} addToToday={addToToday} delTask={delTask} openEdit={openEdit} moveTask={moveTask} onRename={renameTask}/>)}
                   </div>
                 )}
               </div>
