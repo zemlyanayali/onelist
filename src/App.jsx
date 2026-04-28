@@ -190,26 +190,6 @@ export default function OneList(){
   // load — check saved session first, then load data
   useEffect(()=>{
     (async()=>{
-      // ── Handle email confirmation redirect (Supabase puts tokens in URL hash)
-      const hash = window.location.hash;
-      if (hash && hash.includes('access_token')) {
-        const params = new URLSearchParams(hash.slice(1));
-        const access_token = params.get('access_token');
-        const refresh_token = params.get('refresh_token');
-        if (access_token) {
-          try {
-            const r = await fetch(`${SB_URL}/auth/v1/user`, { headers: { apikey: SB_KEY, Authorization: `Bearer ${access_token}` } });
-            const user = await r.json();
-            const sess = { access_token, refresh_token, user_id: user.id, email: user.email };
-            localStorage.setItem('onelist_session', JSON.stringify(sess));
-            window.history.replaceState(null, '', window.location.pathname); // clean URL
-            setSession(sess);
-            const row = await sbLoad(sess.access_token, sess.user_id);
-            if (row?.payload) { dbRowId.current=row.id; setData(row.payload); } else setData(DEFAULTS);
-            setLoading(false); return;
-          } catch {}
-        }
-      }
       try {
         const saved = JSON.parse(localStorage.getItem('onelist_session')||'null');
         if (saved?.access_token) {
