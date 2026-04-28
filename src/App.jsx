@@ -471,9 +471,6 @@ export default function OneList(){
 
   // calendar data
   const tD=TODAY.getDate(),tM=TODAY.getMonth(),tY=TODAY.getFullYear();
-  const mcDays=new Date(tY,tM+1,0).getDate();
-  const mcFirst=new Date(tY,tM,1).getDay();
-  const mcCells=[...Array(mcFirst).fill(null),...Array.from({length:mcDays},(_,i)=>i+1)];
   const mainDays=new Date(calYr,calMo+1,0).getDate();
   const mainFirst=new Date(calYr,calMo,1).getDay();
   const mainCells=[...Array(mainFirst).fill(null),...Array.from({length:mainDays},(_,i)=>i+1)];
@@ -481,7 +478,6 @@ export default function OneList(){
   const calIsNow=calMo===tM&&calYr===tY;
   const sow=new Date(TODAY);sow.setDate(TODAY.getDate()-TODAY.getDay());
   const weekDays=Array.from({length:7},(_,i)=>{const d=new Date(sow);d.setDate(d.getDate()+i);return d;});
-  const calLinks=[{l:'📅 Google',u:'https://calendar.google.com'},{l:'🍎 Apple',u:'https://www.icloud.com/calendar'},{l:'📧 Outlook',u:'https://outlook.live.com/calendar'}];
 
   return (
     <div style={{minHeight:'100vh',background:T.bg,fontFamily:"'DM Sans',system-ui,sans-serif"}}>
@@ -595,7 +591,7 @@ export default function OneList(){
                 )}
               </div>
 
-              {/* Mini calendar — collapsible at bottom */}
+              {/* Full calendar — collapsible at bottom */}
               <div style={{flexShrink:0,borderTop:`1px solid ${SBR}`}}>
                 <button onClick={()=>setCalMin(p=>!p)} style={{width:'100%',background:'none',border:'none',cursor:'pointer',padding:'10px 14px',display:'flex',alignItems:'center',gap:8,color:T.txt2,fontSize:12,fontWeight:600}}>
                   <span style={{fontSize:14}}>📅</span>
@@ -603,15 +599,45 @@ export default function OneList(){
                   <span style={{fontSize:11,color:T.txt3}}>{calMin?'▴':'▾'}</span>
                 </button>
                 {!calMin&&(
-                  <div style={{padding:'0 14px 14px'}}>
-                    <div style={{textAlign:'center',fontSize:11,fontWeight:700,color:T.txt2,marginBottom:6}}>{new Date(tY,tM).toLocaleString('en-AU',{month:'long',year:'numeric'})}</div>
-                    <div style={{display:'grid',gridTemplateColumns:'repeat(7,1fr)',gap:1}}>
-                      {['S','M','T','W','T','F','S'].map((d,i)=><div key={i} style={{textAlign:'center',fontSize:8,fontWeight:700,color:T.txt3,padding:'2px 0'}}>{d}</div>)}
-                      {mcCells.map((d,i)=>{
-                        const isT=d===tD;
-                        return <div key={i} style={{aspectRatio:'1',display:'flex',alignItems:'center',justifyContent:'center',fontSize:9,fontWeight:isT?700:400,borderRadius:4,background:isT?'#FF6B35':'transparent',color:isT?'white':d?T.txt:'transparent'}}>{d||''}</div>;
-                      })}
-                    </div>
+                  <div style={{padding:'0 12px 14px'}}>
+                    {calView==='week'?(
+                      <div>
+                        <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:10}}>
+                          <span style={{fontSize:12,fontWeight:700,color:T.txt}}>This Week</span>
+                          <div style={{display:'flex',gap:4}}>
+                            <button onClick={()=>setCalView('month')} style={{fontSize:10,padding:'3px 8px',borderRadius:100,border:`1px solid ${T.brd}`,background:T.sur2,cursor:'pointer',color:T.txt2}}>Month</button>
+                            <button style={{fontSize:10,padding:'3px 8px',borderRadius:100,border:'none',background:'#FF6B35',cursor:'pointer',color:'white'}}>Week</button>
+                          </div>
+                        </div>
+                        <div style={{display:'grid',gridTemplateColumns:'repeat(7,1fr)',gap:2}}>
+                          {weekDays.map((d,i)=>{const isT=d.toDateString()===TODAY.toDateString();return(
+                            <div key={i} style={{textAlign:'center'}}>
+                              <div style={{fontSize:8,fontWeight:700,color:T.txt3,marginBottom:3}}>{d.toLocaleDateString('en-AU',{weekday:'short'})}</div>
+                              <div style={{width:26,height:26,borderRadius:'50%',background:isT?'#FF6B35':'transparent',display:'flex',alignItems:'center',justifyContent:'center',fontSize:11,fontWeight:isT?700:400,color:isT?'white':T.txt,margin:'0 auto'}}>{d.getDate()}</div>
+                            </div>
+                          );})}
+                        </div>
+                      </div>
+                    ):(
+                      <div>
+                        <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:8}}>
+                          <button onClick={()=>{const d=new Date(calYr,calMo-1);setCalMo(d.getMonth());setCalYr(d.getFullYear());}} style={{background:'none',border:'none',cursor:'pointer',fontSize:16,color:T.txt2,padding:'0 2px'}}>‹</button>
+                          <div style={{display:'flex',alignItems:'center',gap:5}}>
+                            <span style={{fontSize:11,fontWeight:700,color:T.txt}}>{mainMName}</span>
+                            {!calIsNow&&<button onClick={()=>{setCalMo(tM);setCalYr(tY);}} style={{fontSize:9,fontWeight:700,color:'#FF6B35',background:'#FF6B3515',border:'1px solid #FF6B3540',borderRadius:100,padding:'1px 6px',cursor:'pointer'}}>Today</button>}
+                          </div>
+                          <button onClick={()=>{const d=new Date(calYr,calMo+1);setCalMo(d.getMonth());setCalYr(d.getFullYear());}} style={{background:'none',border:'none',cursor:'pointer',fontSize:16,color:T.txt2,padding:'0 2px'}}>›</button>
+                        </div>
+                        <div style={{display:'grid',gridTemplateColumns:'repeat(7,1fr)',gap:1,marginBottom:8}}>
+                          {['Su','Mo','Tu','We','Th','Fr','Sa'].map(d=><div key={d} style={{textAlign:'center',fontSize:8,fontWeight:700,color:T.txt3,padding:'2px 0'}}>{d}</div>)}
+                          {mainCells.map((d,i)=>{const isT=d&&d===tD&&calMo===tM&&calYr===tY;return <div key={i} style={{aspectRatio:'1',display:'flex',alignItems:'center',justifyContent:'center',fontSize:10,fontWeight:isT?700:400,borderRadius:5,background:isT?'#FF6B35':'transparent',color:isT?'white':d?T.txt:'transparent'}}>{d||''}</div>;})}
+                        </div>
+                        <div style={{display:'flex',gap:4}}>
+                          <button style={{fontSize:10,padding:'3px 8px',borderRadius:100,border:'none',background:'#FF6B35',cursor:'pointer',color:'white'}}>Month</button>
+                          <button onClick={()=>setCalView('week')} style={{fontSize:10,padding:'3px 8px',borderRadius:100,border:`1px solid ${T.brd}`,background:T.sur2,cursor:'pointer',color:T.txt2}}>Week</button>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
@@ -667,59 +693,6 @@ export default function OneList(){
                     </div>
                   );
                 })}
-              </div>
-
-              {/* Calendar */}
-              <div style={{marginBottom:28}}>
-                <span style={{fontSize:11,fontWeight:700,color:T.txt3,textTransform:'uppercase',letterSpacing:'0.8px',display:'block',marginBottom:12}}>Calendar</span>
-                <div style={{background:T.sur,border:`1px solid ${T.brd}`,borderRadius:14,padding:18,maxWidth:420}}>
-                  {calView==='week'?(
-                    <div>
-                      <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:12}}>
-                        <span style={{fontSize:13,fontWeight:700,color:T.txt}}>This Week</span>
-                        <div style={{display:'flex',gap:6}}>
-                          <button onClick={()=>setCalView('month')} style={{fontSize:11,padding:'4px 10px',borderRadius:100,border:`1px solid ${T.brd}`,background:T.sur2,cursor:'pointer',color:T.txt2}}>Month</button>
-                          <button style={{fontSize:11,padding:'4px 10px',borderRadius:100,border:'none',background:'#FF6B35',cursor:'pointer',color:'white'}}>Week</button>
-                        </div>
-                      </div>
-                      <div style={{display:'grid',gridTemplateColumns:'repeat(7,1fr)',gap:4,marginBottom:12}}>
-                        {weekDays.map((d,i)=>{const isT=d.toDateString()===TODAY.toDateString();return(
-                          <div key={i} style={{textAlign:'center'}}>
-                            <div style={{fontSize:10,fontWeight:700,color:T.txt3,marginBottom:4}}>{d.toLocaleDateString('en-AU',{weekday:'short'})}</div>
-                            <div style={{width:32,height:32,borderRadius:'50%',background:isT?'#FF6B35':'transparent',display:'flex',alignItems:'center',justifyContent:'center',fontSize:13,fontWeight:isT?700:400,color:isT?'white':T.txt,margin:'0 auto'}}>{d.getDate()}</div>
-                          </div>
-                        );})}
-                      </div>
-                      <div style={{display:'flex',gap:6,flexWrap:'wrap'}}>
-                        {calLinks.map(({l,u})=><a key={u} href={u} target="_blank" rel="noopener noreferrer" style={{fontSize:10,fontWeight:600,color:T.txt2,background:T.sur2,border:`1px solid ${T.brd}`,borderRadius:8,padding:'4px 8px',textDecoration:'none'}}>{l}</a>)}
-                      </div>
-                    </div>
-                  ):(
-                    <div>
-                      <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:10}}>
-                        <button onClick={()=>{const d=new Date(calYr,calMo-1);setCalMo(d.getMonth());setCalYr(d.getFullYear());}} style={{background:'none',border:'none',cursor:'pointer',fontSize:18,color:T.txt2,padding:'0 4px'}}>‹</button>
-                        <div style={{display:'flex',alignItems:'center',gap:6}}>
-                          <span style={{fontSize:13,fontWeight:700,color:T.txt}}>{mainMName}</span>
-                          {!calIsNow&&<button onClick={()=>{setCalMo(tM);setCalYr(tY);}} style={{fontSize:10,fontWeight:700,color:'#FF6B35',background:'#FF6B3515',border:'1px solid #FF6B3540',borderRadius:100,padding:'2px 7px',cursor:'pointer'}}>Today</button>}
-                        </div>
-                        <button onClick={()=>{const d=new Date(calYr,calMo+1);setCalMo(d.getMonth());setCalYr(d.getFullYear());}} style={{background:'none',border:'none',cursor:'pointer',fontSize:18,color:T.txt2,padding:'0 4px'}}>›</button>
-                      </div>
-                      <div style={{display:'grid',gridTemplateColumns:'repeat(7,1fr)',gap:2,marginBottom:10}}>
-                        {['Su','Mo','Tu','We','Th','Fr','Sa'].map(d=><div key={d} style={{textAlign:'center',fontSize:10,fontWeight:700,color:T.txt3,padding:'3px 0'}}>{d}</div>)}
-                        {mainCells.map((d,i)=>{const isT=d&&d===tD&&calMo===tM&&calYr===tY;return <div key={i} style={{aspectRatio:'1',display:'flex',alignItems:'center',justifyContent:'center',fontSize:11,fontWeight:isT?700:400,borderRadius:7,background:isT?'#FF6B35':'transparent',color:isT?'white':d?T.txt:'transparent'}}>{d||''}</div>;})}
-                      </div>
-                      <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',flexWrap:'wrap',gap:6}}>
-                        <div style={{display:'flex',gap:6}}>
-                          <button style={{fontSize:11,padding:'4px 10px',borderRadius:100,border:'none',background:'#FF6B35',cursor:'pointer',color:'white'}}>Month</button>
-                          <button onClick={()=>setCalView('week')} style={{fontSize:11,padding:'4px 10px',borderRadius:100,border:`1px solid ${T.brd}`,background:T.sur2,cursor:'pointer',color:T.txt2}}>Week</button>
-                        </div>
-                        <div style={{display:'flex',gap:6,flexWrap:'wrap'}}>
-                          {calLinks.map(({l,u})=><a key={u} href={u} target="_blank" rel="noopener noreferrer" style={{fontSize:10,fontWeight:600,color:T.txt2,background:T.sur2,border:`1px solid ${T.brd}`,borderRadius:8,padding:'4px 8px',textDecoration:'none'}}>{l}</a>)}
-                        </div>
-                      </div>
-                    </div>
-                  )}
-                </div>
               </div>
 
               {/* Misc */}
