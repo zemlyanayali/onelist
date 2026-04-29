@@ -227,6 +227,8 @@ export default function OneList(){
   const [dragId,setDragId]=useState(null);
   const [dragOv,setDragOv]=useState(null);
   const [dragTask,setDragTask]=useState(null);
+  const [dragProjId,setDragProjId]=useState(null);
+  const [dragProjOver,setDragProjOver]=useState(null);
   const [showPwd,setShowPwd]=useState(false);
   const [inlineAdd,setInlineAdd]=useState({});
   const [showMobileToday,setShowMobileToday]=useState(false);
@@ -390,6 +392,20 @@ export default function OneList(){
   // Cross-project drag: move task to a different project
   const moveTask=(taskId, toProjectId)=>{
     upd(prev=>({...prev,tasks:prev.tasks.map(t=>t.id===taskId?{...t,projectId:toProjectId||null}:t)}));
+  };
+
+  // Reorder projects by drag
+  const reorderProjects=(fromId, toId)=>{
+    if(fromId===toId)return;
+    upd(prev=>{
+      const projs=[...prev.projects];
+      const fi=projs.findIndex(p=>p.id===fromId);
+      const ti=projs.findIndex(p=>p.id===toId);
+      if(fi===-1||ti===-1)return prev;
+      const [moved]=projs.splice(fi,1);
+      projs.splice(ti,0,moved);
+      return{...prev,projects:projs};
+    });
   };
 
   // Toggle task membership in a project (for the dot UI)
@@ -781,25 +797,59 @@ export default function OneList(){
                   const active=tasks.filter(t=>t.projectId===proj.id&&!t.done&&!t.archived&&!t.inToday);
                   const exp=expProj[proj.id];
                   const shown=exp?active:active.slice(0,4);
-                  const isDropTarget=dragTask&&dragTask!==proj.id;
+                  const isTaskDrop=dragTask&&dragTask!==proj.id;
+                  const isProjDrop=dragProjOver===proj.id&&dragProjId!==proj.id;
                   return (
                     <div key={proj.id}
-                      onDragOver={e=>{e.preventDefault();setDragTask(proj.id);}}
-                      onDragLeave={()=>setDragTask(null)}
-                      onDrop={e=>{e.preventDefault();const tid=e.dataTransfer.getData('taskId');if(tid)moveTask(tid,proj.id);setDragTask(null);}}
-                      style={{background:hl(proj.color),borderRadius:16,padding:18,border:`1.5px solid ${isDropTarget?proj.color:hm(proj.color)}`,position:'relative',transition:'all .2s',boxShadow:isDropTarget?`0 0 0 3px ${proj.color}44`:'',display:'flex',flexDirection:'column',minHeight:180}}
-                      onMouseEnter={e=>{if(!dragTask){e.currentTarget.style.transform='translateY(-2px)';e.currentTarget.style.boxShadow='0 8px 32px rgba(0,0,0,.09)';}}}
-                      onMouseLeave={e=>{e.currentTarget.style.transform='';if(!dragTask)e.currentTarget.style.boxShadow='';}}>
+                      draggable
+                      onDragStart={e=>{
+                        // if a task drag is starting from inside, let it bubble; otherwise it's a project drag
+                        if(e.dataTransfer.getData('taskId'))return;
+                        e.dataTransfer.setData('projId',proj.id);
+                        setDragProjId(proj.id);
+                      }}
+                      onDragEnd={()=>{setDragProjId(null);setDragProjOver(null);}}
+                      onDragOver={e=>{
+                        e.preventDefault();
+                        const taskId=e.dataTransfer.types.includes('text/plain')&&e.dataTransfer.getData('projId');
+                        // distinguish task-drop from proj-reorder by checking dragProjId
+                        if(dragProjId&&dragProjId!==proj.id){setDragProjOver(proj.id);}
+                        else{setDragTask(proj.id);}
+                      }}
+                      onDragLeave={()=>{setDragTask(null);setDragProjOver(null);}}
+                      onDrop={e=>{
+                        e.preventDefault();
+                        const taskId=e.dataTransfer.getData('taskId');
+                        const fromProjId=e.dataTransfer.getData('projId');
+                        if(taskId){moveTask(taskId,proj.id);}
+                        else if(fromProjId&&fromProjId!==proj.id){reorderProjects(fromProjId,proj.id);}
+                        setDragTask(null);setDragProjId(null);setDragProjOver(null);
+                      }}
+                      style={{
+                        background:hl(proj.color),borderRadius:16,padding:18,
+                        border:`1.5px solid ${isProjDrop?proj.color:isTaskDrop?proj.color:hm(proj.color)}`,
+                        position:'relative',transition:'all .2s',
+                        boxShadow:isProjDrop?`0 0 0 3px ${proj.color}66`:isTaskDrop?`0 0 0 3px ${proj.color}33`:'',
+                        display:'flex',flexDirection:'column',minHeight:180,
+                        cursor:dragProjId&&dragProjId!==proj.id?'copy':'default',
+                        opacity:dragProjId===proj.id?.5:1,
+                      }}
+                      onMouseEnter={e=>{if(!dragTask&&!dragProjId){e.currentTarget.style.transform='translateY(-2px)';e.currentTarget.style.boxShadow='0 8px 32px rgba(0,0,0,.09)';}}}
+                      onMouseLeave={e=>{e.currentTarget.style.transform='';if(!dragTask&&!dragProjId)e.currentTarget.style.boxShadow='';}}>
                       {/* Header row */}
                       <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:6}}>
-                        <span style={{fontSize:22}}>{proj.emoji}</span>
+                        <div style={{display:'flex',alignItems:'center',gap:8}}>
+                          {/* Drag handle */}
+                          <span style={{fontSize:14,color:proj.color+'66',cursor:'grab',userSelect:'none',lineHeight:1}} title="Drag to reorder">⠿</span>
+                          <span style={{fontSize:22}}>{proj.emoji}</span>
+                        </div>
                         <div style={{display:'flex',alignItems:'center',gap:6}}>
                           <span style={{fontSize:11,fontWeight:700,padding:'2px 7px',borderRadius:100,background:proj.color+'22',color:proj.color}}>{active.length}</span>
                           <button onClick={()=>{setProjForm({name:proj.name,emoji:proj.emoji,color:proj.color});setEditPid(proj.id);setModal('edit-project');}} style={{background:'none',border:'none',cursor:'pointer',fontSize:13,color:proj.color,opacity:.6,padding:0,lineHeight:1}}>⚙</button>
                         </div>
                       </div>
                       <div style={{fontSize:16,fontWeight:800,color:proj.color,marginBottom:10,fontFamily:"'Lora',Georgia,serif"}}>{proj.name}</div>
-                      {/* Task previews — grow to fill */}
+                      {/* Task previews */}
                       <div style={{flex:1}}>
                         {shown.length===0&&<div style={{fontSize:12,color:proj.color+'77',fontStyle:'italic',marginBottom:6}}>All done! 🎉</div>}
                         {shown.map((t,i)=>(
