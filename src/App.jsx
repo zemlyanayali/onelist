@@ -927,18 +927,29 @@ export default function OneList(){
 
                   if(sectionKey==='alltasks') return renderSec(`All Tasks · ${allTasksBase.filter(t=>!t.done).length} active`, null,
                       <>
-                      <div style={{display:'flex',gap:6,flexWrap:'wrap',marginBottom:12}}>
-                        {[{id:null,label:'All',color:'#FF6B35'},...projects.map(p=>({id:p.id,label:p.name,color:p.color,emoji:p.emoji})),{id:'misc',label:'Miscellaneous',color:T.txt3}].map(chip=>{
-                          const act=filterProject===chip.id;
-                          const count=chip.id===null?null:chip.id==='misc'?allTasksBase.filter(t=>!t.projectId&&!t.done).length:allTasksBase.filter(t=>t.projectId===chip.id&&!t.done).length;
+                      <div style={{display:'flex',gap:8,alignItems:'center',marginBottom:12}}>
+                        {/* Misc circle — white with border, always first */}
+                        <button
+                          onClick={()=>setFilterProject(filterProject==='misc'?null:'misc')}
+                          title="Miscellaneous"
+                          style={{width:22,height:22,borderRadius:'50%',border:`2px solid ${filterProject==='misc'?T.txt:T.brd}`,background:dm?'#333':'white',cursor:'pointer',flexShrink:0,padding:0,transition:'all .15s',boxShadow:filterProject==='misc'?`0 0 0 3px ${T.txt}33`:''}}
+                        />
+                        {/* Project circles */}
+                        {projects.map(p=>{
+                          const act=filterProject===p.id;
                           return(
-                            <button key={chip.id||'all'} onClick={()=>setFilterProject(chip.id)} style={{padding:'5px 12px',borderRadius:100,border:`1.5px solid ${act?chip.color:T.brd}`,background:act?chip.color+'18':'transparent',color:act?chip.color:T.txt2,fontSize:12,fontWeight:act?700:500,cursor:'pointer',display:'flex',alignItems:'center',gap:4,transition:'all .15s'}}>
-                              {chip.emoji&&<span>{chip.emoji}</span>}
-                              {chip.label}
-                              {count!==null&&<span style={{background:act?chip.color+'30':T.sur2,color:act?chip.color:T.txt3,borderRadius:100,fontSize:10,fontWeight:700,padding:'0 5px',minWidth:16,textAlign:'center'}}>{count}</span>}
-                            </button>
+                            <button
+                              key={p.id}
+                              onClick={()=>setFilterProject(act?null:p.id)}
+                              title={p.name}
+                              style={{width:22,height:22,borderRadius:'50%',border:`2px solid ${act?p.color:'transparent'}`,background:p.color,cursor:'pointer',flexShrink:0,padding:0,transition:'all .15s',boxShadow:act?`0 0 0 3px ${p.color}44`:''}}
+                            />
                           );
                         })}
+                        {/* All — small text reset, only shown when a filter is active */}
+                        {filterProject!==null&&(
+                          <button onClick={()=>setFilterProject(null)} style={{fontSize:11,fontWeight:600,color:T.txt3,background:'none',border:'none',cursor:'pointer',padding:'0 4px',marginLeft:2}}>✕ All</button>
+                        )}
                       </div>
                       {/* Quick-add */}
                       <div style={{display:'flex',gap:6,marginBottom:12}} onDragOver={e=>e.preventDefault()} onDrop={e=>{e.preventDefault();const tid=e.dataTransfer.getData('taskId');if(tid)moveTask(tid,filterProject&&filterProject!=='misc'?filterProject:null);setDragTask(null);}}>
