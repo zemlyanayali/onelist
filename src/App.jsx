@@ -927,29 +927,20 @@ export default function OneList(){
 
                   if(sectionKey==='alltasks') return renderSec(`All Tasks · ${allTasksBase.filter(t=>!t.done).length} active`, null,
                       <>
-                      <div style={{display:'flex',gap:8,alignItems:'center',marginBottom:12}}>
-                        {/* Misc circle — white with border, always first */}
-                        <button
-                          onClick={()=>setFilterProject(filterProject==='misc'?null:'misc')}
-                          title="Miscellaneous"
-                          style={{width:22,height:22,borderRadius:'50%',border:`2px solid ${filterProject==='misc'?T.txt:T.brd}`,background:dm?'#333':'white',cursor:'pointer',flexShrink:0,padding:0,transition:'all .15s',boxShadow:filterProject==='misc'?`0 0 0 3px ${T.txt}33`:''}}
-                        />
+                      <div style={{display:'flex',gap:8,alignItems:'center',marginBottom:12,justifyContent:'flex-end'}}>
+                        {/* All reset — only shown when a filter is active */}
+                        {filterProject!==null&&(
+                          <button onClick={()=>setFilterProject(null)} style={{fontSize:11,fontWeight:600,color:T.txt3,background:'none',border:'none',cursor:'pointer',padding:'0 4px'}}>✕ All</button>
+                        )}
                         {/* Project circles */}
                         {projects.map(p=>{
                           const act=filterProject===p.id;
                           return(
-                            <button
-                              key={p.id}
-                              onClick={()=>setFilterProject(act?null:p.id)}
-                              title={p.name}
-                              style={{width:22,height:22,borderRadius:'50%',border:`2px solid ${act?p.color:'transparent'}`,background:p.color,cursor:'pointer',flexShrink:0,padding:0,transition:'all .15s',boxShadow:act?`0 0 0 3px ${p.color}44`:''}}
-                            />
+                            <button key={p.id} onClick={()=>setFilterProject(act?null:p.id)} title={p.name} style={{width:22,height:22,borderRadius:'50%',border:`2px solid ${act?p.color:'transparent'}`,background:p.color,cursor:'pointer',flexShrink:0,padding:0,transition:'all .15s',boxShadow:act?`0 0 0 3px ${p.color}44`:''}}/>
                           );
                         })}
-                        {/* All — small text reset, only shown when a filter is active */}
-                        {filterProject!==null&&(
-                          <button onClick={()=>setFilterProject(null)} style={{fontSize:11,fontWeight:600,color:T.txt3,background:'none',border:'none',cursor:'pointer',padding:'0 4px',marginLeft:2}}>✕ All</button>
-                        )}
+                        {/* Misc circle — white, always last */}
+                        <button onClick={()=>setFilterProject(filterProject==='misc'?null:'misc')} title="Miscellaneous" style={{width:22,height:22,borderRadius:'50%',border:`2px solid ${filterProject==='misc'?T.txt:T.brd}`,background:dm?'#333':'white',cursor:'pointer',flexShrink:0,padding:0,transition:'all .15s',boxShadow:filterProject==='misc'?`0 0 0 3px ${T.txt}33`:''}}/>
                       </div>
                       {/* Quick-add */}
                       <div style={{display:'flex',gap:6,marginBottom:12}} onDragOver={e=>e.preventDefault()} onDrop={e=>{e.preventDefault();const tid=e.dataTransfer.getData('taskId');if(tid)moveTask(tid,filterProject&&filterProject!=='misc'?filterProject:null);setDragTask(null);}}>
