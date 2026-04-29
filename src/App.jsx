@@ -641,6 +641,7 @@ export default function OneList(){
         @keyframes pulse{0%{box-shadow:0 0 0 0 rgba(255,107,53,.4);}100%{box-shadow:0 0 0 20px rgba(255,107,53,0);}}
         @keyframes confettiFall{0%{transform:translateY(-20px) rotate(0deg);opacity:1;}100%{transform:translateY(100vh) rotate(720deg);opacity:0;}}
         @keyframes popIn{0%{transform:scale(.5);opacity:0;}60%{transform:scale(1.15);}100%{transform:scale(1);opacity:1;}}
+        @keyframes slideIn{0%{opacity:0;transform:translateX(20px);}100%{opacity:1;transform:translateX(0);}}
         @media(max-width:768px){.sb{display:none!important;}.vfab{display:flex!important;}}
         @media(min-width:769px){.vfab{display:none!important;}}
       `}</style>
@@ -825,206 +826,218 @@ export default function OneList(){
           )}
         </div>
 
-        {/* MAIN */}
-        <div style={{flex:1,overflowY:'auto',minHeight:'calc(100vh - 57px)'}}>
+        {/* MAIN — split panel: dashboard always left, project slides in on right */}
+        <div style={{flex:1,display:'flex',minHeight:'calc(100vh - 57px)',overflow:'hidden'}}>
 
-          {view==='dashboard'&&(
-            <div style={{padding:24}}>
-              {dashLayout.map(sectionKey=>{
-                const isLast=dashLayout.indexOf(sectionKey)===dashLayout.length-1;
+          {/* ── Left: Dashboard (always visible) ── */}
+          <div style={{flex:currentProj?'0 0 50%':'1',overflowY:'auto',minHeight:'calc(100vh - 57px)',transition:'flex .25s ease',borderRight:currentProj?`1px solid ${T.brd}`:'none'}}>
 
-                // Section drag handle wrapper
-                const SectionWrap=({title,right,children})=>(
-                  <div style={{marginBottom:isLast?0:32}}
-                    draggable
-                    onDragStart={e=>{e.dataTransfer.setData('section',sectionKey);setDragSection(sectionKey);}}
-                    onDragEnd={()=>{setDragSection(null);setDragSectionOver(null);}}
-                    onDragOver={e=>{e.preventDefault();if(dragSection&&dragSection!==sectionKey)setDragSectionOver(sectionKey);}}
-                    onDragLeave={()=>setDragSectionOver(null)}
-                    onDrop={e=>{e.preventDefault();const from=e.dataTransfer.getData('section');if(from&&from!==sectionKey)reorderDashboard(from,sectionKey);setDragSection(null);setDragSectionOver(null);}}>
-                    <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:14,opacity:dragSection===sectionKey?.4:1,borderTop:dragSectionOver===sectionKey?'2px solid #FF6B35':'2px solid transparent',paddingTop:dragSectionOver===sectionKey?8:0,transition:'all .15s'}}>
-                      <div style={{display:'flex',alignItems:'center',gap:8}}>
-                        <span style={{fontSize:12,color:T.txt3,cursor:'grab',userSelect:'none'}} title="Drag to reorder sections">⠿</span>
-                        <span style={{fontSize:11,fontWeight:700,color:T.txt3,textTransform:'uppercase',letterSpacing:'0.8px'}}>{title}</span>
+            {(view==='dashboard'||view.startsWith('project-'))&&(
+              <div style={{padding:24}}>
+                {dashLayout.map(sectionKey=>{
+                  const isLast=dashLayout.indexOf(sectionKey)===dashLayout.length-1;
+                  const SectionWrap=({title,right,children})=>(
+                    <div style={{marginBottom:isLast?0:32}}
+                      draggable
+                      onDragStart={e=>{e.dataTransfer.setData('section',sectionKey);setDragSection(sectionKey);}}
+                      onDragEnd={()=>{setDragSection(null);setDragSectionOver(null);}}
+                      onDragOver={e=>{e.preventDefault();if(dragSection&&dragSection!==sectionKey)setDragSectionOver(sectionKey);}}
+                      onDragLeave={()=>setDragSectionOver(null)}
+                      onDrop={e=>{e.preventDefault();const from=e.dataTransfer.getData('section');if(from&&from!==sectionKey)reorderDashboard(from,sectionKey);setDragSection(null);setDragSectionOver(null);}}>
+                      <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:14,opacity:dragSection===sectionKey?.4:1,borderTop:dragSectionOver===sectionKey?'2px solid #FF6B35':'2px solid transparent',paddingTop:dragSectionOver===sectionKey?8:0,transition:'all .15s'}}>
+                        <div style={{display:'flex',alignItems:'center',gap:8}}>
+                          <span style={{fontSize:12,color:T.txt3,cursor:'grab',userSelect:'none'}} title="Drag to reorder sections">⠿</span>
+                          <span style={{fontSize:11,fontWeight:700,color:T.txt3,textTransform:'uppercase',letterSpacing:'0.8px'}}>{title}</span>
+                        </div>
+                        {right}
                       </div>
-                      {right}
+                      {children}
                     </div>
-                    {children}
-                  </div>
-                );
+                  );
 
-                if(sectionKey==='projects') return (
-                  <SectionWrap key="projects" title="Projects & Categories"
-                    right={<button onClick={()=>{setProjForm({name:'',emoji:'📁',color:'#3B82F6'});setEditPid(null);setModal('add-project');}} style={{background:'none',border:'none',cursor:'pointer',fontSize:13,fontWeight:600,color:'#FF6B35'}}>+ New Project</button>}>
-                    <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(220px,1fr))',gap:14}}>
-                      {projects.map(proj=>{
-                        const active=tasks.filter(t=>t.projectId===proj.id&&!t.done&&!t.archived&&!t.inToday);
-                        const exp=expProj[proj.id];
-                        const shown=exp?active:active.slice(0,4);
-                        const isTaskDrop=dragTask&&dragTask!==proj.id;
-                        const isProjDrop=dragProjOver===proj.id&&dragProjId!==proj.id;
-                        return (
-                          <div key={proj.id}
-                            draggable
-                            onDragStart={e=>{if(e.dataTransfer.getData('taskId'))return;e.dataTransfer.setData('projId',proj.id);setDragProjId(proj.id);}}
-                            onDragEnd={()=>{setDragProjId(null);setDragProjOver(null);}}
-                            onDragOver={e=>{e.preventDefault();e.stopPropagation();if(dragProjId&&dragProjId!==proj.id){setDragProjOver(proj.id);}else{setDragTask(proj.id);}}}
-                            onDragLeave={()=>{setDragTask(null);setDragProjOver(null);}}
-                            onDrop={e=>{e.preventDefault();e.stopPropagation();const taskId=e.dataTransfer.getData('taskId');const fromProjId=e.dataTransfer.getData('projId');if(taskId){moveTask(taskId,proj.id);}else if(fromProjId&&fromProjId!==proj.id){reorderProjects(fromProjId,proj.id);}setDragTask(null);setDragProjId(null);setDragProjOver(null);}}
-                            style={{background:hl(proj.color),borderRadius:16,padding:18,border:`1.5px solid ${isProjDrop?proj.color:isTaskDrop?proj.color:hm(proj.color)}`,position:'relative',transition:'all .2s',boxShadow:isProjDrop?`0 0 0 3px ${proj.color}66`:isTaskDrop?`0 0 0 3px ${proj.color}33`:'',display:'flex',flexDirection:'column',minHeight:180,opacity:dragProjId===proj.id?.5:1,cursor:dragProjId&&dragProjId!==proj.id?'copy':'default'}}
-                            onMouseEnter={e=>{if(!dragTask&&!dragProjId&&!dragSection){e.currentTarget.style.transform='translateY(-2px)';e.currentTarget.style.boxShadow='0 8px 32px rgba(0,0,0,.09)';}}}
-                            onMouseLeave={e=>{e.currentTarget.style.transform='';if(!dragTask&&!dragProjId)e.currentTarget.style.boxShadow='';}}>
-                            <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:6}}>
-                              <div style={{display:'flex',alignItems:'center',gap:8}}>
-                                <span style={{fontSize:14,color:proj.color+'66',cursor:'grab',userSelect:'none',lineHeight:1}} title="Drag to reorder">⠿</span>
-                                <span style={{fontSize:22}}>{proj.emoji}</span>
-                              </div>
-                              <div style={{display:'flex',alignItems:'center',gap:6}}>
-                                <span style={{fontSize:11,fontWeight:700,padding:'2px 7px',borderRadius:100,background:proj.color+'22',color:proj.color}}>{active.length}</span>
-                                <button onClick={()=>{setProjForm({name:proj.name,emoji:proj.emoji,color:proj.color});setEditPid(proj.id);setModal('edit-project');}} style={{background:'none',border:'none',cursor:'pointer',fontSize:13,color:proj.color,opacity:.6,padding:0,lineHeight:1}}>⚙</button>
-                              </div>
-                            </div>
-                            <div style={{fontSize:16,fontWeight:800,color:proj.color,marginBottom:10,fontFamily:"'Lora',Georgia,serif"}}>{proj.name}</div>
-                            <div style={{flex:1}}>
-                              {shown.length===0&&<div style={{fontSize:12,color:proj.color+'77',fontStyle:'italic',marginBottom:6}}>All done! 🎉</div>}
-                              {shown.map((t,i)=>(
-                                <div key={t.id} style={{fontSize:12,color:proj.color+'BB',padding:'3px 0',borderTop:i===0?`1px solid ${proj.color}20`:'none',display:'flex',alignItems:'center',gap:5}}>
-                                  {t.pinTop&&<span style={{fontSize:9,color:proj.color,flexShrink:0}}>📌</span>}
-                                  <div style={{width:4,height:4,borderRadius:'50%',background:proj.color,flexShrink:0}}/>
-                                  <span style={{overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',flex:1}}>{t.title}</span>
-                                  {t.subtasks.length>0&&<span style={{fontSize:10,opacity:.55,flexShrink:0}}>{t.subtasks.filter(s=>s.done).length}/{t.subtasks.length}</span>}
+                  if(sectionKey==='projects') return (
+                    <SectionWrap key="projects" title="Projects & Categories"
+                      right={<button onClick={()=>{setProjForm({name:'',emoji:'📁',color:'#3B82F6'});setEditPid(null);setModal('add-project');}} style={{background:'none',border:'none',cursor:'pointer',fontSize:13,fontWeight:600,color:'#FF6B35'}}>+ New Project</button>}>
+                      <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(200px,1fr))',gap:14}}>
+                        {projects.map(proj=>{
+                          const active=tasks.filter(t=>t.projectId===proj.id&&!t.done&&!t.archived&&!t.inToday);
+                          const exp=expProj[proj.id];
+                          const shown=exp?active:active.slice(0,4);
+                          const isTaskDrop=dragTask&&dragTask!==proj.id;
+                          const isProjDrop=dragProjOver===proj.id&&dragProjId!==proj.id;
+                          const isSelected=view===`project-${proj.id}`;
+                          return (
+                            <div key={proj.id}
+                              draggable
+                              onDragStart={e=>{if(e.dataTransfer.getData('taskId'))return;e.dataTransfer.setData('projId',proj.id);setDragProjId(proj.id);}}
+                              onDragEnd={()=>{setDragProjId(null);setDragProjOver(null);}}
+                              onDragOver={e=>{e.preventDefault();e.stopPropagation();if(dragProjId&&dragProjId!==proj.id){setDragProjOver(proj.id);}else{setDragTask(proj.id);}}}
+                              onDragLeave={()=>{setDragTask(null);setDragProjOver(null);}}
+                              onDrop={e=>{e.preventDefault();e.stopPropagation();const taskId=e.dataTransfer.getData('taskId');const fromProjId=e.dataTransfer.getData('projId');if(taskId){moveTask(taskId,proj.id);}else if(fromProjId&&fromProjId!==proj.id){reorderProjects(fromProjId,proj.id);}setDragTask(null);setDragProjId(null);setDragProjOver(null);}}
+                              style={{background:hl(proj.color),borderRadius:16,padding:18,
+                                border:`${isSelected?'2.5px':'1.5px'} solid ${isSelected?proj.color:isProjDrop?proj.color:isTaskDrop?proj.color:hm(proj.color)}`,
+                                position:'relative',transition:'all .2s',
+                                boxShadow:isSelected?`0 0 0 3px ${proj.color}33`:isProjDrop?`0 0 0 3px ${proj.color}66`:isTaskDrop?`0 0 0 2px ${proj.color}33`:'',
+                                display:'flex',flexDirection:'column',minHeight:160,
+                                opacity:dragProjId===proj.id?.5:1,cursor:'default'}}
+                              onMouseEnter={e=>{if(!dragTask&&!dragProjId&&!dragSection&&!isSelected){e.currentTarget.style.transform='translateY(-2px)';e.currentTarget.style.boxShadow='0 8px 32px rgba(0,0,0,.09)';}}}
+                              onMouseLeave={e=>{e.currentTarget.style.transform='';if(!dragTask&&!dragProjId&&!isSelected)e.currentTarget.style.boxShadow='';}}>
+                              <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:6}}>
+                                <div style={{display:'flex',alignItems:'center',gap:8}}>
+                                  <span style={{fontSize:14,color:proj.color+'66',cursor:'grab',userSelect:'none',lineHeight:1}}>⠿</span>
+                                  <span style={{fontSize:20}}>{proj.emoji}</span>
                                 </div>
-                              ))}
-                              {active.length>4&&<button onClick={()=>setExpProj(p=>({...p,[proj.id]:!p[proj.id]}))} style={{background:'none',border:'none',cursor:'pointer',fontSize:10,fontWeight:700,color:proj.color,marginTop:4,padding:0}}>{exp?'▲ Less':`▼ +${active.length-4} more`}</button>}
-                            </div>
-                            <div style={{display:'flex',gap:6,marginTop:12}}>
-                              <input value={inlineAdd[proj.id]||''} onChange={e=>setInlineAdd(p=>({...p,[proj.id]:e.target.value}))} onKeyDown={e=>e.key==='Enter'&&inlineAddTask(proj.id,inlineAdd[proj.id]||'')} placeholder="Add task…" style={{flex:1,background:proj.color+'12',border:`1px solid ${proj.color}30`,borderRadius:8,padding:'6px 9px',fontSize:12,color:proj.color,fontFamily:'inherit',outline:'none'}}/>
-                              <button onClick={()=>setView(`project-${proj.id}`)} style={{background:proj.color+'22',border:'none',borderRadius:8,padding:'6px 10px',fontSize:12,fontWeight:700,color:proj.color,cursor:'pointer',whiteSpace:'nowrap'}}>Open →</button>
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </SectionWrap>
-                );
-
-                if(sectionKey==='alltasks') return (
-                  <SectionWrap key="alltasks" title={`All Tasks · ${allTasks.filter(t=>!t.done).length} active`} right={null}>
-                    {/* Quick-add */}
-                    <div style={{display:'flex',gap:6,marginBottom:12}}
-                      onDragOver={e=>e.preventDefault()}
-                      onDrop={e=>{e.preventDefault();const tid=e.dataTransfer.getData('taskId');if(tid)moveTask(tid,null);setDragTask(null);}}>
-                      <input value={inlineAdd['misc']||''} onChange={e=>setInlineAdd(p=>({...p,misc:e.target.value}))} onKeyDown={e=>e.key==='Enter'&&inlineAddTask('misc',inlineAdd['misc']||'')} placeholder="Add task… (or drag here to remove from project)" style={{flex:1,background:T.sur,border:`1.5px solid ${T.brd}`,borderRadius:8,padding:'8px 12px',fontSize:13,color:T.txt,fontFamily:'inherit',outline:'none'}}/>
-                      <button onClick={()=>inlineAddTask('misc',inlineAdd['misc']||'')} style={{background:'#FF6B35',border:'none',borderRadius:8,padding:'8px 12px',cursor:'pointer',fontSize:16,color:'white',fontWeight:700}}>+</button>
-                    </div>
-                    <div onDragOver={e=>e.preventDefault()} onDrop={e=>{e.preventDefault();const tid=e.dataTransfer.getData('taskId');if(tid)moveTask(tid,null);setDragTask(null);}}>
-                      {allTasks.length===0&&<div style={{fontSize:13,color:T.txt3,fontStyle:'italic',padding:'8px 0'}}>No tasks yet</div>}
-                      {allTasks.map(t=><TaskCard key={t.id} task={t} T={T} dm={dm} getProj={getProj} projects={projects} expTask={expTask} setExpTask={setExpTask} toggleDone={toggleDone} toggleSub={toggleSub} addToToday={addToToday} delTask={delTask} openEdit={openEdit} moveTask={moveTask} onRename={renameTask} toggleTaskProject={toggleTaskProject} togglePinTop={togglePinTop}/>)}
-                    </div>
-                  </SectionWrap>
-                );
-
-                if(sectionKey==='calendar') return (
-                  <SectionWrap key="calendar" title="Calendar" right={null}>
-                    <div style={{background:T.sur,border:`1px solid ${T.brd}`,borderRadius:14,padding:18,maxWidth:420}}>
-                      {calView==='week'?(
-                        <div>
-                          <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:12}}>
-                            <span style={{fontSize:13,fontWeight:700,color:T.txt}}>This Week</span>
-                            <div style={{display:'flex',gap:6}}>
-                              <button onClick={()=>setCalView('month')} style={{fontSize:11,padding:'4px 10px',borderRadius:100,border:`1px solid ${T.brd}`,background:T.sur2,cursor:'pointer',color:T.txt2}}>Month</button>
-                              <button style={{fontSize:11,padding:'4px 10px',borderRadius:100,border:'none',background:'#FF6B35',cursor:'pointer',color:'white'}}>Week</button>
-                            </div>
-                          </div>
-                          <div style={{display:'grid',gridTemplateColumns:'repeat(7,1fr)',gap:4,marginBottom:12}}>
-                            {weekDays.map((d,i)=>{const isT=d.toDateString()===TODAY.toDateString();return(
-                              <div key={i} style={{textAlign:'center'}}>
-                                <div style={{fontSize:10,fontWeight:700,color:T.txt3,marginBottom:4}}>{d.toLocaleDateString('en-AU',{weekday:'short'})}</div>
-                                <div style={{width:32,height:32,borderRadius:'50%',background:isT?'#FF6B35':'transparent',display:'flex',alignItems:'center',justifyContent:'center',fontSize:13,fontWeight:isT?700:400,color:isT?'white':T.txt,margin:'0 auto'}}>{d.getDate()}</div>
+                                <div style={{display:'flex',alignItems:'center',gap:6}}>
+                                  <span style={{fontSize:11,fontWeight:700,padding:'2px 7px',borderRadius:100,background:proj.color+'22',color:proj.color}}>{active.length}</span>
+                                  <button onClick={e=>{e.stopPropagation();setProjForm({name:proj.name,emoji:proj.emoji,color:proj.color});setEditPid(proj.id);setModal('edit-project');}} style={{background:'none',border:'none',cursor:'pointer',fontSize:13,color:proj.color,opacity:.6,padding:0,lineHeight:1}}>⚙</button>
+                                </div>
                               </div>
-                            );})}
-                          </div>
-                        </div>
-                      ):(
-                        <div>
-                          <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:10}}>
-                            <button onClick={()=>{const d=new Date(calYr,calMo-1);setCalMo(d.getMonth());setCalYr(d.getFullYear());}} style={{background:'none',border:'none',cursor:'pointer',fontSize:18,color:T.txt2,padding:'0 4px'}}>‹</button>
-                            <div style={{display:'flex',alignItems:'center',gap:6}}>
-                              <span style={{fontSize:13,fontWeight:700,color:T.txt}}>{mainMName}</span>
-                              {!calIsNow&&<button onClick={()=>{setCalMo(tM);setCalYr(tY);}} style={{fontSize:10,fontWeight:700,color:'#FF6B35',background:'#FF6B3515',border:'1px solid #FF6B3540',borderRadius:100,padding:'2px 7px',cursor:'pointer'}}>Today</button>}
+                              <div style={{fontSize:15,fontWeight:800,color:proj.color,marginBottom:8,fontFamily:"'Lora',Georgia,serif"}}>{proj.name}</div>
+                              <div style={{flex:1}}>
+                                {shown.length===0&&<div style={{fontSize:11,color:proj.color+'77',fontStyle:'italic',marginBottom:6}}>All done! 🎉</div>}
+                                {shown.map((t,i)=>(
+                                  <div key={t.id} style={{fontSize:11,color:proj.color+'BB',padding:'2px 0',borderTop:i===0?`1px solid ${proj.color}20`:'none',display:'flex',alignItems:'center',gap:4}}>
+                                    {t.pinTop&&<span style={{fontSize:8,color:proj.color}}>📌</span>}
+                                    <div style={{width:3,height:3,borderRadius:'50%',background:proj.color,flexShrink:0}}/>
+                                    <span style={{overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',flex:1}}>{t.title}</span>
+                                    {t.subtasks.length>0&&<span style={{fontSize:9,opacity:.55,flexShrink:0}}>{t.subtasks.filter(s=>s.done).length}/{t.subtasks.length}</span>}
+                                  </div>
+                                ))}
+                                {active.length>4&&<button onClick={()=>setExpProj(p=>({...p,[proj.id]:!p[proj.id]}))} style={{background:'none',border:'none',cursor:'pointer',fontSize:10,fontWeight:700,color:proj.color,marginTop:4,padding:0}}>{exp?'▲ Less':`▼ +${active.length-4} more`}</button>}
+                              </div>
+                              <div style={{display:'flex',gap:6,marginTop:10}}>
+                                <input value={inlineAdd[proj.id]||''} onChange={e=>setInlineAdd(p=>({...p,[proj.id]:e.target.value}))} onKeyDown={e=>e.key==='Enter'&&inlineAddTask(proj.id,inlineAdd[proj.id]||'')} placeholder="Add task…" style={{flex:1,background:proj.color+'12',border:`1px solid ${proj.color}30`,borderRadius:8,padding:'5px 8px',fontSize:11,color:proj.color,fontFamily:'inherit',outline:'none'}}/>
+                                <button onClick={()=>setView(`project-${proj.id}`)} style={{background:isSelected?proj.color:proj.color+'22',border:'none',borderRadius:8,padding:'5px 10px',fontSize:11,fontWeight:700,color:isSelected?'white':proj.color,cursor:'pointer',whiteSpace:'nowrap'}}>
+                                  {isSelected?'Viewing':'Open →'}
+                                </button>
+                              </div>
                             </div>
-                            <button onClick={()=>{const d=new Date(calYr,calMo+1);setCalMo(d.getMonth());setCalYr(d.getFullYear());}} style={{background:'none',border:'none',cursor:'pointer',fontSize:18,color:T.txt2,padding:'0 4px'}}>›</button>
+                          );
+                        })}
+                      </div>
+                    </SectionWrap>
+                  );
+
+                  if(sectionKey==='alltasks') return (
+                    <SectionWrap key="alltasks" title={`All Tasks · ${allTasks.filter(t=>!t.done).length} active`} right={null}>
+                      <div style={{display:'flex',gap:6,marginBottom:12}}
+                        onDragOver={e=>e.preventDefault()}
+                        onDrop={e=>{e.preventDefault();const tid=e.dataTransfer.getData('taskId');if(tid)moveTask(tid,null);setDragTask(null);}}>
+                        <input value={inlineAdd['misc']||''} onChange={e=>setInlineAdd(p=>({...p,misc:e.target.value}))} onKeyDown={e=>e.key==='Enter'&&inlineAddTask('misc',inlineAdd['misc']||'')} placeholder="Add task… (drag here to remove from project)" style={{flex:1,background:T.sur,border:`1.5px solid ${T.brd}`,borderRadius:8,padding:'8px 12px',fontSize:13,color:T.txt,fontFamily:'inherit',outline:'none'}}/>
+                        <button onClick={()=>inlineAddTask('misc',inlineAdd['misc']||'')} style={{background:'#FF6B35',border:'none',borderRadius:8,padding:'8px 12px',cursor:'pointer',fontSize:16,color:'white',fontWeight:700}}>+</button>
+                      </div>
+                      <div onDragOver={e=>e.preventDefault()} onDrop={e=>{e.preventDefault();const tid=e.dataTransfer.getData('taskId');if(tid)moveTask(tid,null);setDragTask(null);}}>
+                        {allTasks.length===0&&<div style={{fontSize:13,color:T.txt3,fontStyle:'italic',padding:'8px 0'}}>No tasks yet</div>}
+                        {allTasks.map(t=><TaskCard key={t.id} task={t} T={T} dm={dm} getProj={getProj} projects={projects} expTask={expTask} setExpTask={setExpTask} toggleDone={toggleDone} toggleSub={toggleSub} addToToday={addToToday} delTask={delTask} openEdit={openEdit} moveTask={moveTask} onRename={renameTask} toggleTaskProject={toggleTaskProject} togglePinTop={togglePinTop}/>)}
+                      </div>
+                    </SectionWrap>
+                  );
+
+                  if(sectionKey==='calendar') return (
+                    <SectionWrap key="calendar" title="Calendar" right={null}>
+                      <div style={{background:T.sur,border:`1px solid ${T.brd}`,borderRadius:14,padding:18,maxWidth:420}}>
+                        {calView==='week'?(
+                          <div>
+                            <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:12}}>
+                              <span style={{fontSize:13,fontWeight:700,color:T.txt}}>This Week</span>
+                              <div style={{display:'flex',gap:6}}>
+                                <button onClick={()=>setCalView('month')} style={{fontSize:11,padding:'4px 10px',borderRadius:100,border:`1px solid ${T.brd}`,background:T.sur2,cursor:'pointer',color:T.txt2}}>Month</button>
+                                <button style={{fontSize:11,padding:'4px 10px',borderRadius:100,border:'none',background:'#FF6B35',cursor:'pointer',color:'white'}}>Week</button>
+                              </div>
+                            </div>
+                            <div style={{display:'grid',gridTemplateColumns:'repeat(7,1fr)',gap:4,marginBottom:12}}>
+                              {weekDays.map((d,i)=>{const isT=d.toDateString()===TODAY.toDateString();return(
+                                <div key={i} style={{textAlign:'center'}}>
+                                  <div style={{fontSize:10,fontWeight:700,color:T.txt3,marginBottom:4}}>{d.toLocaleDateString('en-AU',{weekday:'short'})}</div>
+                                  <div style={{width:32,height:32,borderRadius:'50%',background:isT?'#FF6B35':'transparent',display:'flex',alignItems:'center',justifyContent:'center',fontSize:13,fontWeight:isT?700:400,color:isT?'white':T.txt,margin:'0 auto'}}>{d.getDate()}</div>
+                                </div>
+                              );})}
+                            </div>
                           </div>
-                          <div style={{display:'grid',gridTemplateColumns:'repeat(7,1fr)',gap:2,marginBottom:10}}>
-                            {['Su','Mo','Tu','We','Th','Fr','Sa'].map(d=><div key={d} style={{textAlign:'center',fontSize:10,fontWeight:700,color:T.txt3,padding:'3px 0'}}>{d}</div>)}
-                            {mainCells.map((d,i)=>{const isT=d&&d===tD&&calMo===tM&&calYr===tY;return <div key={i} style={{aspectRatio:'1',display:'flex',alignItems:'center',justifyContent:'center',fontSize:11,fontWeight:isT?700:400,borderRadius:7,background:isT?'#FF6B35':'transparent',color:isT?'white':d?T.txt:'transparent'}}>{d||''}</div>;})}
+                        ):(
+                          <div>
+                            <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:10}}>
+                              <button onClick={()=>{const d=new Date(calYr,calMo-1);setCalMo(d.getMonth());setCalYr(d.getFullYear());}} style={{background:'none',border:'none',cursor:'pointer',fontSize:18,color:T.txt2,padding:'0 4px'}}>‹</button>
+                              <div style={{display:'flex',alignItems:'center',gap:6}}>
+                                <span style={{fontSize:13,fontWeight:700,color:T.txt}}>{mainMName}</span>
+                                {!calIsNow&&<button onClick={()=>{setCalMo(tM);setCalYr(tY);}} style={{fontSize:10,fontWeight:700,color:'#FF6B35',background:'#FF6B3515',border:'1px solid #FF6B3540',borderRadius:100,padding:'2px 7px',cursor:'pointer'}}>Today</button>}
+                              </div>
+                              <button onClick={()=>{const d=new Date(calYr,calMo+1);setCalMo(d.getMonth());setCalYr(d.getFullYear());}} style={{background:'none',border:'none',cursor:'pointer',fontSize:18,color:T.txt2,padding:'0 4px'}}>›</button>
+                            </div>
+                            <div style={{display:'grid',gridTemplateColumns:'repeat(7,1fr)',gap:2,marginBottom:10}}>
+                              {['Su','Mo','Tu','We','Th','Fr','Sa'].map(d=><div key={d} style={{textAlign:'center',fontSize:10,fontWeight:700,color:T.txt3,padding:'3px 0'}}>{d}</div>)}
+                              {mainCells.map((d,i)=>{const isT=d&&d===tD&&calMo===tM&&calYr===tY;return <div key={i} style={{aspectRatio:'1',display:'flex',alignItems:'center',justifyContent:'center',fontSize:11,fontWeight:isT?700:400,borderRadius:7,background:isT?'#FF6B35':'transparent',color:isT?'white':d?T.txt:'transparent'}}>{d||''}</div>;})}
+                            </div>
+                            <div style={{display:'flex',gap:6}}>
+                              <button style={{fontSize:11,padding:'4px 10px',borderRadius:100,border:'none',background:'#FF6B35',cursor:'pointer',color:'white'}}>Month</button>
+                              <button onClick={()=>setCalView('week')} style={{fontSize:11,padding:'4px 10px',borderRadius:100,border:`1px solid ${T.brd}`,background:T.sur2,cursor:'pointer',color:T.txt2}}>Week</button>
+                            </div>
                           </div>
-                          <div style={{display:'flex',gap:6}}>
-                            <button style={{fontSize:11,padding:'4px 10px',borderRadius:100,border:'none',background:'#FF6B35',cursor:'pointer',color:'white'}}>Month</button>
-                            <button onClick={()=>setCalView('week')} style={{fontSize:11,padding:'4px 10px',borderRadius:100,border:`1px solid ${T.brd}`,background:T.sur2,cursor:'pointer',color:T.txt2}}>Week</button>
-                          </div>
-                        </div>
-                      )}
+                        )}
+                      </div>
+                    </SectionWrap>
+                  );
+
+                  return null;
+                })}
+              </div>
+            )}
+
+            {view==='archive'&&(
+              <div style={{padding:24}}>
+                <button onClick={()=>setView('dashboard')} style={{background:'none',border:'none',cursor:'pointer',fontSize:13,color:T.txt2,marginBottom:20}}>← Back</button>
+                <div style={{fontFamily:"'Lora',Georgia,serif",fontSize:22,fontWeight:700,marginBottom:20,color:T.txt}}>Archive</div>
+                {archived.length===0
+                  ?<div style={{textAlign:'center',padding:'60px 0',color:T.txt3,fontSize:13}}><div style={{fontSize:40,marginBottom:12}}>📦</div>Nothing archived yet</div>
+                  :[...archived].reverse().map((t,i)=>{const proj=t.projectId?getProj(t.projectId):null;return(
+                    <div key={i} style={{background:T.sur,border:`1px solid ${T.brd}`,borderRadius:12,padding:'12px 16px',marginBottom:8,borderLeft:`3px solid ${proj?.color||T.brd}`,opacity:.7}}>
+                      <div style={{fontSize:14,fontWeight:500,color:T.txt,textDecoration:'line-through'}}>{t.title}</div>
+                      <div style={{fontSize:11,color:T.txt3,marginTop:4}}>{proj?`${proj.emoji} ${proj.name} · `:''}Archived {new Date(t.archivedAt||Date.now()).toLocaleDateString('en-AU')}</div>
                     </div>
-                  </SectionWrap>
-                );
+                  );})}
+              </div>
+            )}
+          </div>
 
-                return null;
-              })}
-            </div>
-          )}
-
-
-          {view.startsWith('project-')&&currentProj&&(()=>{
+          {/* ── Right panel: Project detail (slides in) ── */}
+          {currentProj&&(()=>{
             const active=sortByPinTop(tasks.filter(t=>t.projectId===currentProj.id&&!t.done&&!t.archived&&!t.inToday));
             const done=tasks.filter(t=>t.projectId===currentProj.id&&t.done&&!t.archived&&!t.inToday);
             return (
-              <div style={{padding:24}}>
-                <button onClick={()=>setView('dashboard')} style={{background:'none',border:'none',cursor:'pointer',fontSize:13,color:T.txt2,marginBottom:20}}>← Back</button>
-                <div style={{background:hl(currentProj.color),borderRadius:16,padding:'18px 22px',marginBottom:24,display:'flex',alignItems:'center',gap:16,border:`1.5px solid ${hm(currentProj.color)}`}}>
-                  <span style={{fontSize:38}}>{currentProj.emoji}</span>
-                  <div>
-                    <div style={{fontSize:22,fontWeight:800,color:currentProj.color,fontFamily:"'Lora',Georgia,serif"}}>{currentProj.name}</div>
-                    <div style={{fontSize:12,color:currentProj.color+'99',marginTop:2}}>{active.length} active · {tasks.filter(t=>t.projectId===currentProj.id&&t.inToday).length} in Today</div>
+              <div style={{flex:'0 0 50%',overflowY:'auto',minHeight:'calc(100vh - 57px)',background:T.bg,animation:'slideIn .2s ease'}}>
+                <div style={{padding:24}}>
+                  {/* Project header */}
+                  <div style={{background:hl(currentProj.color),borderRadius:16,padding:'16px 20px',marginBottom:20,display:'flex',alignItems:'center',gap:14,border:`1.5px solid ${hm(currentProj.color)}`}}>
+                    <span style={{fontSize:32}}>{currentProj.emoji}</span>
+                    <div style={{flex:1,minWidth:0}}>
+                      <div style={{fontSize:20,fontWeight:800,color:currentProj.color,fontFamily:"'Lora',Georgia,serif"}}>{currentProj.name}</div>
+                      <div style={{fontSize:11,color:currentProj.color+'99',marginTop:2}}>{active.length} active · {tasks.filter(t=>t.projectId===currentProj.id&&t.inToday).length} in Today</div>
+                    </div>
+                    <div style={{display:'flex',gap:6,flexShrink:0}}>
+                      <button onClick={()=>{setProjForm({name:currentProj.name,emoji:currentProj.emoji,color:currentProj.color});setEditPid(currentProj.id);setModal('edit-project');}} style={{background:currentProj.color+'22',border:'none',borderRadius:100,padding:'7px 12px',fontSize:12,fontWeight:700,color:currentProj.color,cursor:'pointer'}}>⚙</button>
+                      <button onClick={()=>setView('dashboard')} title="Close panel" style={{background:T.sur2,border:`1px solid ${T.brd}`,borderRadius:100,padding:'7px 12px',fontSize:12,fontWeight:700,color:T.txt2,cursor:'pointer'}}>✕</button>
+                    </div>
                   </div>
-                  <div style={{marginLeft:'auto',display:'flex',gap:8}}>
-                    <button onClick={()=>{setProjForm({name:currentProj.name,emoji:currentProj.emoji,color:currentProj.color});setEditPid(currentProj.id);setModal('edit-project');}} style={{background:currentProj.color+'22',border:'none',borderRadius:100,padding:'9px 14px',fontSize:12,fontWeight:700,color:currentProj.color,cursor:'pointer'}}>⚙ Edit</button>
+                  {/* Inline quick-add */}
+                  <div style={{display:'flex',gap:8,marginBottom:16}}>
+                    <input value={inlineAdd[currentProj.id]||''} onChange={e=>setInlineAdd(p=>({...p,[currentProj.id]:e.target.value}))} onKeyDown={e=>e.key==='Enter'&&inlineAddTask(currentProj.id,inlineAdd[currentProj.id]||'')} placeholder={`Add task to ${currentProj.name}…`} style={{flex:1,background:hl(currentProj.color),border:`1.5px solid ${hm(currentProj.color)}`,borderRadius:10,padding:'10px 14px',fontSize:13,color:currentProj.color,fontFamily:'inherit',outline:'none'}}/>
+                    <button onClick={()=>inlineAddTask(currentProj.id,inlineAdd[currentProj.id]||'')} style={{background:currentProj.color,border:'none',borderRadius:10,padding:'10px 14px',cursor:'pointer',fontSize:18,color:'white',fontWeight:700}}>+</button>
                   </div>
+                  {active.length===0&&<div style={{fontSize:13,color:T.txt3,fontStyle:'italic',padding:'12px 0'}}>No active tasks — type above to add one!</div>}
+                  {active.map(t=><TaskCard key={t.id} task={t} T={T} dm={dm} getProj={getProj} projects={projects} expTask={expTask} setExpTask={setExpTask} toggleDone={toggleDone} toggleSub={toggleSub} addToToday={addToToday} delTask={delTask} openEdit={openEdit} moveTask={moveTask} onRename={renameTask} toggleTaskProject={toggleTaskProject} togglePinTop={togglePinTop}/>)}
+                  {done.length>0&&(
+                    <div style={{marginTop:20}}>
+                      <div style={{fontSize:11,fontWeight:700,color:T.txt3,textTransform:'uppercase',letterSpacing:'0.8px',marginBottom:12}}>Completed ({done.length})</div>
+                      {done.map(t=><TaskCard key={t.id} task={t} T={T} dm={dm} getProj={getProj} projects={projects} expTask={expTask} setExpTask={setExpTask} toggleDone={toggleDone} toggleSub={toggleSub} addToToday={addToToday} delTask={delTask} openEdit={openEdit} moveTask={moveTask} onRename={renameTask} toggleTaskProject={toggleTaskProject} togglePinTop={togglePinTop}/>)}
+                    </div>
+                  )}
                 </div>
-                {/* Inline quick-add — auto-assigned to this project */}
-                <div style={{display:'flex',gap:8,marginBottom:16}}>
-                  <input value={inlineAdd[currentProj.id]||''} onChange={e=>setInlineAdd(p=>({...p,[currentProj.id]:e.target.value}))} onKeyDown={e=>e.key==='Enter'&&inlineAddTask(currentProj.id,inlineAdd[currentProj.id]||'')} placeholder={`Add task to ${currentProj.name}…`} style={{flex:1,background:hl(currentProj.color),border:`1.5px solid ${hm(currentProj.color)}`,borderRadius:10,padding:'10px 14px',fontSize:14,color:currentProj.color,fontFamily:'inherit',outline:'none'}}/>
-                  <button onClick={()=>inlineAddTask(currentProj.id,inlineAdd[currentProj.id]||'')} style={{background:currentProj.color,border:'none',borderRadius:10,padding:'10px 16px',cursor:'pointer',fontSize:18,color:'white',fontWeight:700}}>+</button>
-                </div>
-                {active.length===0&&<div style={{fontSize:13,color:T.txt3,fontStyle:'italic',padding:'12px 0'}}>No active tasks — type above to add one!</div>}
-                {active.map(t=><TaskCard key={t.id} task={t} T={T} dm={dm} getProj={getProj} projects={projects} expTask={expTask} setExpTask={setExpTask} toggleDone={toggleDone} toggleSub={toggleSub} addToToday={addToToday} delTask={delTask} openEdit={openEdit} moveTask={moveTask} onRename={renameTask} toggleTaskProject={toggleTaskProject} togglePinTop={togglePinTop}/>)}
-                {done.length>0&&(
-                  <div>
-                    <div style={{fontSize:11,fontWeight:700,color:T.txt3,textTransform:'uppercase',letterSpacing:'0.8px',marginTop:20,marginBottom:12}}>Completed ({done.length})</div>
-                    {done.map(t=><TaskCard key={t.id} task={t} T={T} dm={dm} getProj={getProj} projects={projects} expTask={expTask} setExpTask={setExpTask} toggleDone={toggleDone} toggleSub={toggleSub} addToToday={addToToday} delTask={delTask} openEdit={openEdit} moveTask={moveTask} onRename={renameTask} toggleTaskProject={toggleTaskProject} togglePinTop={togglePinTop}/>)}
-                  </div>
-                )}
               </div>
             );
           })()}
 
-          {view==='archive'&&(
-            <div style={{padding:24}}>
-              <button onClick={()=>setView('dashboard')} style={{background:'none',border:'none',cursor:'pointer',fontSize:13,color:T.txt2,marginBottom:20}}>← Back</button>
-              <div style={{fontFamily:"'Lora',Georgia,serif",fontSize:22,fontWeight:700,marginBottom:20,color:T.txt}}>Archive</div>
-              {archived.length===0
-                ?<div style={{textAlign:'center',padding:'60px 0',color:T.txt3,fontSize:13}}><div style={{fontSize:40,marginBottom:12}}>📦</div>Nothing archived yet</div>
-                :[...archived].reverse().map((t,i)=>{const proj=t.projectId?getProj(t.projectId):null;return(
-                  <div key={i} style={{background:T.sur,border:`1px solid ${T.brd}`,borderRadius:12,padding:'12px 16px',marginBottom:8,borderLeft:`3px solid ${proj?.color||T.brd}`,opacity:.7}}>
-                    <div style={{fontSize:14,fontWeight:500,color:T.txt,textDecoration:'line-through'}}>{t.title}</div>
-                    <div style={{fontSize:11,color:T.txt3,marginTop:4}}>{proj?`${proj.emoji} ${proj.name} · `:''}Archived {new Date(t.archivedAt||Date.now()).toLocaleDateString('en-AU')}</div>
-                  </div>
-                );})}
-            </div>
-          )}
-
-        </div>
-      </div>
+        </div>{/* end right panel / split row */}
+      </div>{/* end body flex row */}
 
       {/* ── Mobile FABs ── */}
       {/* Today FAB — mobile only */}
