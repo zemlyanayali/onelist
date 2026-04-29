@@ -309,13 +309,14 @@ export default function OneList(){
   // Confetti when all today tasks go from >0 active to 0 active
   useEffect(()=>{
     if(!data)return;
-    const active=todayTasks.filter(t=>!t.done).length;
-    if(prevActiveRef.current!==null&&prevActiveRef.current>0&&active===0&&todayTasks.length>0){
+    const active=(data.tasks||[]).filter(t=>t.inToday&&!t.archived&&!t.done).length;
+    const total=(data.tasks||[]).filter(t=>t.inToday&&!t.archived).length;
+    if(prevActiveRef.current!==null&&prevActiveRef.current>0&&active===0&&total>0){
       setConfetti(true);
       setTimeout(()=>setConfetti(false),4000);
     }
     prevActiveRef.current=active;
-  },[todayTasks.filter(t=>!t.done).length]);
+  },[data]);
 
   useEffect(()=>{
     const h=e=>{
