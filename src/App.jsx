@@ -96,7 +96,7 @@ const DEFAULTS = {
   lastReset:new Date().toDateString(),
   todayOrder:['t1','t3','t4'],
   dashboardLayout:['projects','alltasks'],
-  settings:{resetHour:3,displayName:''},
+  settings:{resetHour:3,resetMinute:0,displayName:'',todaySide:'left'},
 };
 const BLANK = {title:'',projectId:'',notes:'',subtasks:[],inToday:false,pinned:false,pinTop:false,recur:'',customRecur:''};
 
@@ -112,13 +112,21 @@ function Lbl({children}){
   return <label style={{fontSize:11,fontWeight:700,textTransform:'uppercase',letterSpacing:'0.5px',display:'block',marginBottom:6,color:'#888'}}>{children}</label>;
 }
 
-function TaskCard({task,T,dm,getProj,projects,expTask,setExpTask,toggleDone,toggleSub,addToToday,delTask,openEdit,moveTask,onRename,toggleTaskProject,togglePinTop}){
+function TaskCard({task,T,dm,getProj,projects,expTask,setExpTask,toggleDone,toggleSub,addToToday,delTask,openEdit,moveTask,onRename,toggleTaskProject,togglePinTop,isMobile}){
   const proj=task.projectId?getProj(task.projectId):null;
   const exp=expTask[task.id];
   const hasSubs=(task.subtasks||[]).length>0;
   const [editing,setEditing]=useState(false);
   const [editVal,setEditVal]=useState(task.title);
+  const [swipeX,setSwipeX]=useState(0);
+  const [swipeState,setSwipeState]=useState(null); // null|'right'|'left'|'left2'
+  const [showDelConfirm,setShowDelConfirm]=useState(false);
+  const [holdTimer,setHoldTimer]=useState(null);
+  const touchStartX=useRef(0);
+  const touchStartY=useRef(0);
   const inputRef=useRef(null);
+  const SWIPE_THRESHOLD=60;
+  const SWIPE2_THRESHOLD=140;
 
   const startEdit=e=>{
     e.stopPropagation();
@@ -127,38 +135,98 @@ function TaskCard({task,T,dm,getProj,projects,expTask,setExpTask,toggleDone,togg
     setEditing(true);
     setTimeout(()=>inputRef.current?.focus(),0);
   };
-
   const commitEdit=()=>{
     if(editVal.trim()&&editVal.trim()!==task.title)onRename(task.id,editVal.trim());
     setEditing(false);
   };
 
+  // Mobile touch handlers
+  const onTouchStart=e=>{
+    touchStartX.current=e.touches[0].clientX;
+    touchStartY.current=e.touches[0].clientY;
+    // Hold to edit
+    const t=setTimeout(()=>{ if(!task.done) startEdit({stopPropagation:()=>{}}); },600);
+    setHoldTimer(t);
+  };
+  const onTouchMove=e=>{
+    clearTimeout(holdTimer);
+    const dx=e.touches[0].clientX-touchStartX.current;
+    const dy=e.touches[0].clientY-touchStartY.current;
+    if(Math.abs(dy)>Math.abs(dx))return; // vertical scroll, ignore
+    setSwipeX(dx);
+  };
+  const onTouchEnd=()=>{
+    clearTimeout(holdTimer);
+    if(swipeX>SWIPE_THRESHOLD){
+      // Swipe right: add to Today
+      addToToday(task.id);
+      setSwipeState('right');
+      setTimeout(()=>setSwipeState(null),600);
+    } else if(swipeX<-SWIPE2_THRESHOLD){
+      // Double swipe left: delete with confirm
+      setShowDelConfirm(true);
+    } else if(swipeX<-SWIPE_THRESHOLD){
+      // Single swipe left: show left menu
+      setSwipeState('left');
+    }
+    setSwipeX(0);
+  };
+
+  const resetSwipe=()=>setSwipeState(null);
+
+  if(showDelConfirm) return(
+    <div style={{background:'#FF3B3012',border:'1px solid #FF3B3040',borderRadius:12,padding:'12px 14px',marginBottom:8,display:'flex',alignItems:'center',gap:10}}>
+      <span style={{flex:1,fontSize:13,color:T.txt}}>Delete "{task.title}"?</span>
+      <button onClick={()=>delTask(task.id)} style={{background:'#FF3B30',border:'none',borderRadius:8,padding:'6px 14px',fontSize:12,fontWeight:700,color:'white',cursor:'pointer'}}>Delete</button>
+      <button onClick={()=>setShowDelConfirm(false)} style={{background:T.sur2,border:`1px solid ${T.brd}`,borderRadius:8,padding:'6px 14px',fontSize:12,fontWeight:600,color:T.txt,cursor:'pointer'}}>Cancel</button>
+    </div>
+  );
+
+  if(swipeState==='left') return(
+    <div style={{background:T.sur2,border:`1px solid ${T.brd}`,borderRadius:12,padding:'10px 14px',marginBottom:8,display:'flex',alignItems:'center',gap:8,animation:'slideIn .15s ease'}}>
+      <span style={{flex:1,fontSize:13,fontWeight:500,color:T.txt,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{task.title}</span>
+      {projects&&projects.map(p=>(
+        <button key={p.id} onClick={()=>{toggleTaskProject&&toggleTaskProject(task.id,p.id);resetSwipe();}} title={p.name} style={{width:28,height:28,borderRadius:'50%',background:task.projectId===p.id?p.color:p.color+'22',border:`2px solid ${p.color}`,cursor:'pointer',flexShrink:0,padding:0,fontSize:10,color:task.projectId===p.id?'white':p.color,fontWeight:700}}/>
+      ))}
+      <button onClick={()=>{togglePinTop&&togglePinTop(task.id);resetSwipe();}} style={{background:task.pinTop?'#FF6B35':'#FF6B3522',border:`1px solid #FF6B3560`,borderRadius:8,padding:'4px 10px',fontSize:12,cursor:'pointer',color:task.pinTop?'white':'#FF6B35'}}>📌</button>
+      <button onClick={()=>setShowDelConfirm(true)} style={{background:'#FF3B3012',border:'1px solid #FF3B3040',borderRadius:8,padding:'4px 10px',fontSize:12,cursor:'pointer',color:'#FF3B30'}}>🗑</button>
+      <button onClick={resetSwipe} style={{background:T.sur,border:`1px solid ${T.brd}`,borderRadius:8,padding:'4px 8px',fontSize:12,cursor:'pointer',color:T.txt3}}>✕</button>
+    </div>
+  );
+
   return (
     <div
-      draggable={!editing}
+      draggable={!editing&&!isMobile}
       onDragStart={e=>{if(editing){e.preventDefault();return;}e.dataTransfer.setData('taskId',task.id);e.dataTransfer.setData('fromProject',task.projectId||'misc');}}
-      style={{background:T.sur,border:`1px solid ${T.brd}`,borderRadius:12,padding:'11px 14px',marginBottom:8,borderLeft:`3px solid ${proj?.color||T.brd}`,transition:'box-shadow .15s',cursor:editing?'text':'grab'}}
-      onMouseEnter={e=>e.currentTarget.style.boxShadow=dm?'0 2px 16px rgba(0,0,0,.4)':'0 2px 16px rgba(0,0,0,.06)'}
-      onMouseLeave={e=>e.currentTarget.style.boxShadow='none'}>
+      onTouchStart={isMobile?onTouchStart:undefined}
+      onTouchMove={isMobile?onTouchMove:undefined}
+      onTouchEnd={isMobile?onTouchEnd:undefined}
+      style={{
+        background:swipeState==='right'?'#34C75912':T.sur,
+        border:`1px solid ${swipeState==='right'?'#34C759':T.brd}`,
+        borderRadius:12,padding:'11px 14px',marginBottom:8,
+        borderLeft:`3px solid ${proj?.color||T.brd}`,
+        transition:'box-shadow .15s, background .2s, transform .1s',
+        cursor:editing?'text':isMobile?'default':'grab',
+        transform:swipeX?`translateX(${Math.max(-100,Math.min(80,swipeX))}px)`:'',
+        userSelect:'none',
+      }}
+      onMouseEnter={e=>!isMobile&&(e.currentTarget.style.boxShadow=dm?'0 2px 16px rgba(0,0,0,.4)':'0 2px 16px rgba(0,0,0,.06)')}
+      onMouseLeave={e=>!isMobile&&(e.currentTarget.style.boxShadow='none')}>
       <div style={{display:'flex',alignItems:'flex-start',gap:10}}>
         <Chk done={task.done} color={proj?.color} onClick={e=>{e.stopPropagation();toggleDone(task.id);}}/>
         <div style={{flex:1,minWidth:0}}>
           {editing?(
-            <input
-              ref={inputRef}
-              value={editVal}
-              onChange={e=>setEditVal(e.target.value)}
+            <input ref={inputRef} value={editVal} onChange={e=>setEditVal(e.target.value)}
               onBlur={commitEdit}
-              onKeyDown={e=>{if(e.key==='Enter')commitEdit();if(e.key==='Escape'){setEditing(false);}}}
-              style={{width:'100%',background:'transparent',border:'none',borderBottom:`1.5px solid ${proj?.color||'#FF6B35'}`,fontSize:14,fontWeight:500,color:T.txt,fontFamily:'inherit',outline:'none',padding:'1px 0',lineHeight:1.4}}
-            />
+              onKeyDown={e=>{if(e.key==='Enter')commitEdit();if(e.key==='Escape')setEditing(false);}}
+              style={{width:'100%',background:'transparent',border:'none',borderBottom:`1.5px solid ${proj?.color||'#FF6B35'}`,fontSize:14,fontWeight:500,color:T.txt,fontFamily:'inherit',outline:'none',padding:'1px 0',lineHeight:1.4}}/>
           ):(
             <div style={{display:'flex',alignItems:'baseline',gap:6,minWidth:0}}>
-              <span
-                onClick={startEdit}
-                title="Click to rename"
-                style={{fontSize:14,fontWeight:500,color:task.done?T.txt3:T.txt,textDecoration:task.done?'line-through':'none',lineHeight:1.4,cursor:task.done?'default':'text',flex:1,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}
-              >{task.title}</span>
+              <span onClick={!isMobile?startEdit:undefined} title={!isMobile?"Click to rename":undefined}
+                style={{fontSize:14,fontWeight:500,color:task.done?T.txt3:T.txt,textDecoration:task.done?'line-through':'none',lineHeight:1.4,cursor:task.done?'default':isMobile?'default':'text',flex:1,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>
+                {task.title}
+              </span>
               {hasSubs&&<span onClick={e=>{e.stopPropagation();setExpTask(p=>({...p,[task.id]:!p[task.id]}));}} style={{fontSize:11,color:T.txt3,fontWeight:400,flexShrink:0,cursor:'pointer'}}>{task.subtasks.filter(s=>s.done).length}/{task.subtasks.length} {exp?'▲':'▼'}</span>}
               {task.recur&&<span style={{fontSize:10,color:T.txt3,flexShrink:0}}>🔁 {task.recur}</span>}
             </div>
@@ -175,21 +243,28 @@ function TaskCard({task,T,dm,getProj,projects,expTask,setExpTask,toggleDone,togg
           )}
           {task.notes&&!exp&&<div style={{fontSize:11,color:T.txt3,marginTop:3,fontStyle:'italic',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{task.notes}</div>}
         </div>
-        <div style={{display:'flex',gap:4,flexShrink:0,opacity:.6}} onMouseEnter={e=>e.currentTarget.style.opacity='1'} onMouseLeave={e=>e.currentTarget.style.opacity='.6'}>
-          {/* Project dots */}
-          {projects&&projects.map(p=>{
-            const active=task.projectId===p.id;
-            return(
-              <div key={p.id} onClick={()=>toggleTaskProject&&toggleTaskProject(task.id,p.id)} title={p.name} style={{width:14,height:14,borderRadius:'50%',background:active?p.color:'transparent',border:`2px solid ${p.color}`,cursor:'pointer',flexShrink:0,transition:'all .15s'}}/>
-            );
-          })}
-          {projects&&projects.length>0&&<div style={{width:1,background:T.brd,margin:'0 2px'}}/>}
-          {/* Section pin — pins to top of this section, not Today */}
-          {togglePinTop&&<button onClick={()=>togglePinTop(task.id)} title={task.pinTop?'Unpin from section top':'Pin to top of section'} style={{width:26,height:26,borderRadius:6,border:`1px solid ${task.pinTop?'#FF6B35':T.brd}`,background:task.pinTop?'#FF6B3512':T.sur2,cursor:'pointer',fontSize:12,display:'flex',alignItems:'center',justifyContent:'center',color:task.pinTop?'#FF6B35':T.txt3}}>📌</button>}
-          <button onClick={()=>openEdit(task)} title="Edit details" style={{width:26,height:26,borderRadius:6,border:`1px solid ${T.brd}`,background:T.sur2,cursor:'pointer',fontSize:12,display:'flex',alignItems:'center',justifyContent:'center',color:T.txt2}}>✎</button>
-          {!task.inToday&&<button onClick={()=>addToToday(task.id)} title="Add to Today" style={{width:26,height:26,borderRadius:6,border:`1px solid ${T.brd}`,background:T.sur2,cursor:'pointer',fontSize:13,display:'flex',alignItems:'center',justifyContent:'center'}}>☆</button>}
-          <button onClick={()=>delTask(task.id)} title="Delete" style={{width:26,height:26,borderRadius:6,border:`1px solid ${T.brd}`,background:T.sur2,cursor:'pointer',fontSize:12,display:'flex',alignItems:'center',justifyContent:'center',color:'#FF3B30'}}>✕</button>
-        </div>
+        {/* Desktop actions */}
+        {!isMobile&&(
+          <div style={{display:'flex',gap:4,flexShrink:0,opacity:.6}} onMouseEnter={e=>e.currentTarget.style.opacity='1'} onMouseLeave={e=>e.currentTarget.style.opacity='.6'}>
+            {projects&&projects.map(p=>{
+              const active=task.projectId===p.id;
+              return <div key={p.id} onClick={()=>toggleTaskProject&&toggleTaskProject(task.id,p.id)} title={p.name} style={{width:14,height:14,borderRadius:'50%',background:active?p.color:'transparent',border:`2px solid ${p.color}`,cursor:'pointer',flexShrink:0,transition:'all .15s'}}/>;
+            })}
+            {projects&&projects.length>0&&<div style={{width:1,background:T.brd,margin:'0 2px'}}/>}
+            {togglePinTop&&<button onClick={()=>togglePinTop(task.id)} title={task.pinTop?'Unpin':'Pin to section top'} style={{width:26,height:26,borderRadius:6,border:`1px solid ${task.pinTop?'#FF6B35':T.brd}`,background:task.pinTop?'#FF6B3512':T.sur2,cursor:'pointer',fontSize:12,display:'flex',alignItems:'center',justifyContent:'center',color:task.pinTop?'#FF6B35':T.txt3}}>📌</button>}
+            <button onClick={()=>openEdit(task)} title="Edit" style={{width:26,height:26,borderRadius:6,border:`1px solid ${T.brd}`,background:T.sur2,cursor:'pointer',fontSize:12,display:'flex',alignItems:'center',justifyContent:'center',color:T.txt2}}>✎</button>
+            {!task.inToday&&<button onClick={()=>addToToday(task.id)} title="Add to Today" style={{width:26,height:26,borderRadius:6,border:`1px solid ${T.brd}`,background:T.sur2,cursor:'pointer',fontSize:13,display:'flex',alignItems:'center',justifyContent:'center'}}>☆</button>}
+            <button onClick={()=>delTask(task.id)} title="Delete" style={{width:26,height:26,borderRadius:6,border:`1px solid ${T.brd}`,background:T.sur2,cursor:'pointer',fontSize:12,display:'flex',alignItems:'center',justifyContent:'center',color:'#FF3B30'}}>✕</button>
+          </div>
+        )}
+        {/* Mobile: minimal actions - just done indicator hint */}
+        {isMobile&&(
+          <div style={{display:'flex',flexDirection:'column',alignItems:'flex-end',gap:3,flexShrink:0}}>
+            {task.pinTop&&<span style={{fontSize:10,color:'#FF6B35'}}>📌</span>}
+            {task.inToday&&<span style={{fontSize:10,color:'#34C759'}}>☀</span>}
+            {proj&&<div style={{width:8,height:8,borderRadius:'50%',background:proj.color}}/>}
+          </div>
+        )}
       </div>
     </div>
   );
@@ -206,6 +281,7 @@ export default function OneList(){
   const [authLoad,setAuthLoad]=useState(false);
   const [loading,setLoading]=useState(true);
   const [dm,setDm]=useState(false);
+  const [isMobile,setIsMobile]=useState(window.innerWidth<=768);
   const [view,setView]=useState('dashboard');
   const [modal,setModal]=useState(null);
   const [sbOpen,setSbOpen]=useState(true);
@@ -302,7 +378,8 @@ export default function OneList(){
     if(!data)return;
     const ts=TODAY.toDateString();
     const resetHour=data.settings?.resetHour??3;
-    if(data.lastReset===ts||TODAY.getHours()<resetHour)return;
+    const resetMinute=data.settings?.resetMinute??0;
+    if(data.lastReset===ts||(TODAY.getHours()<resetHour||(TODAY.getHours()===resetHour&&TODAY.getMinutes()<resetMinute)))return;
     setData(prev=>{
       const arch=[...prev.archived];
       const tasks=prev.tasks.map(t=>{
@@ -336,6 +413,12 @@ export default function OneList(){
     window.addEventListener('keydown',h);
     return()=>window.removeEventListener('keydown',h);
   },[modal]);
+
+  useEffect(()=>{
+    const h=()=>setIsMobile(window.innerWidth<=768);
+    window.addEventListener('resize',h);
+    return()=>window.removeEventListener('resize',h);
+  },[]);
 
   // Close account panel on outside click
   useEffect(()=>{
@@ -665,29 +748,37 @@ export default function OneList(){
           <span style={{fontFamily:"'Lora',Georgia,serif",fontSize:20,fontWeight:700,color:T.txt,letterSpacing:'-0.5px'}}>One<span style={{color:'#FF6B35'}}>List</span></span>
         </button>
         <div style={{flex:1}}/>
-        <button onClick={()=>setModal('search')} style={{display:'flex',alignItems:'center',gap:8,background:T.sur2,border:`1px solid ${T.brd}`,borderRadius:100,padding:'7px 14px',cursor:'pointer',fontSize:13,color:T.txt3}}>
+        {!isMobile&&<button onClick={()=>setModal('search')} style={{display:'flex',alignItems:'center',gap:8,background:T.sur2,border:`1px solid ${T.brd}`,borderRadius:100,padding:'7px 14px',cursor:'pointer',fontSize:13,color:T.txt3}}>
           🔍 <span>Search</span> <span style={{fontSize:10,opacity:.6}}>⌘K</span>
-        </button>
-        {[{i:'📦',t:'Archive',a:()=>setView('archive'),on:view==='archive'},{i:'🎙️',t:'Voice',a:startVoice,on:false},{i:dm?'☀️':'🌙',t:'Dark mode',a:()=>setDm(p=>!p),on:false}].map(({i,t,a,on})=>(
+        </button>}
+        {/* Voice always visible */}
+        <button onClick={startVoice} title="Voice (V)" style={{width:34,height:34,borderRadius:8,border:`1px solid ${T.brd}`,background:T.sur2,cursor:'pointer',fontSize:16,display:'flex',alignItems:'center',justifyContent:'center',color:T.txt}}>🎙️</button>
+        {/* Archive + dark mode: desktop only in header */}
+        {!isMobile&&[{i:'📦',t:'Archive',a:()=>setView('archive'),on:view==='archive'},{i:dm?'☀️':'🌙',t:'Dark mode',a:()=>setDm(p=>!p),on:false}].map(({i,t,a,on})=>(
           <button key={t} onClick={a} title={t} style={{width:34,height:34,borderRadius:8,border:`1px solid ${T.brd}`,background:on?'#FF6B35':T.sur2,cursor:'pointer',fontSize:16,display:'flex',alignItems:'center',justifyContent:'center',color:on?'white':T.txt}}>{i}</button>
         ))}
-        <button onClick={()=>{setTaskForm(BLANK);setEditTid(null);setModal('add-task');}} style={{background:'#FF6B35',border:'none',borderRadius:100,padding:'8px 16px',fontSize:13,fontWeight:700,color:'white',cursor:'pointer'}}>+ Task</button>
-        {/* User + logout */}
-        <div ref={accountRef} style={{position:'relative',marginLeft:4,paddingLeft:12,borderLeft:`1px solid ${T.brd}`}}>
-          <button onClick={e=>{e.stopPropagation();setShowAccount(p=>!p);}} style={{display:'flex',alignItems:'center',gap:6,background:T.sur2,border:`1px solid ${T.brd}`,borderRadius:100,padding:'5px 12px 5px 8px',cursor:'pointer'}}>
-            <div style={{width:26,height:26,borderRadius:'50%',background:'#FF6B35',display:'flex',alignItems:'center',justifyContent:'center',fontSize:12,fontWeight:700,color:'white',flexShrink:0}}>
-              {(data?.settings?.displayName||session?.email||'?')[0].toUpperCase()}
-            </div>
-            <span style={{fontSize:12,color:T.txt2,maxWidth:120,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{data?.settings?.displayName||session?.email}</span>
+        {!isMobile&&<button onClick={()=>{setTaskForm(BLANK);setEditTid(null);setModal('add-task');}} style={{background:'#FF6B35',border:'none',borderRadius:100,padding:'8px 16px',fontSize:13,fontWeight:700,color:'white',cursor:'pointer'}}>+ Task</button>}
+        {isMobile&&<button onClick={()=>{setTaskForm(BLANK);setEditTid(null);setModal('add-task');}} style={{background:'#FF6B35',border:'none',borderRadius:8,padding:'8px 14px',fontSize:13,fontWeight:700,color:'white',cursor:'pointer'}}>+</button>}
+        {/* Account button — avatar only on mobile */}
+        <div ref={accountRef} style={{position:'relative',marginLeft:4,paddingLeft:isMobile?0:12,borderLeft:isMobile?'none':`1px solid ${T.brd}`}}>
+          <button onClick={e=>{e.stopPropagation();setShowAccount(p=>!p);}} style={{width:34,height:34,borderRadius:'50%',background:'#FF6B35',border:'none',cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',fontSize:14,fontWeight:700,color:'white'}}>
+            {(data?.settings?.displayName||session?.email||'?')[0].toUpperCase()}
           </button>
           {showAccount&&(
-            <div onClick={e=>e.stopPropagation()} style={{position:'absolute',top:'calc(100% + 8px)',right:0,background:T.sur,border:`1px solid ${T.brd}`,borderRadius:14,padding:16,width:240,boxShadow:'0 8px 32px rgba(0,0,0,.12)',zIndex:200}}>
+            <div onClick={e=>e.stopPropagation()} style={{position:'absolute',top:'calc(100% + 8px)',right:0,background:T.sur,border:`1px solid ${T.brd}`,borderRadius:14,padding:16,width:260,boxShadow:'0 8px 32px rgba(0,0,0,.15)',zIndex:200}}>
               <div style={{fontSize:11,fontWeight:700,color:T.txt3,textTransform:'uppercase',letterSpacing:'0.5px',marginBottom:10}}>Account</div>
-              <div style={{marginBottom:12}}>
+              <div style={{marginBottom:10}}>
                 <label style={{fontSize:11,fontWeight:700,color:T.txt2,display:'block',marginBottom:4}}>Display name</label>
                 <input value={data?.settings?.displayName||''} onChange={e=>upd(prev=>({...prev,settings:{...(prev.settings||{}),displayName:e.target.value}}))} placeholder={session?.email} style={{width:'100%',background:T.sur2,border:`1.5px solid ${T.brd}`,borderRadius:8,padding:'7px 10px',fontSize:13,color:T.txt,fontFamily:'inherit',outline:'none'}}/>
               </div>
               <div style={{fontSize:12,color:T.txt3,marginBottom:12,wordBreak:'break-all'}}>{session?.email}</div>
+              {/* Mobile-only: archive + dark mode in account panel */}
+              {isMobile&&(
+                <div style={{display:'flex',gap:8,marginBottom:12}}>
+                  <button onClick={()=>{setView('archive');setShowAccount(false);}} style={{flex:1,background:T.sur2,border:`1px solid ${T.brd}`,borderRadius:8,padding:'8px 0',fontSize:13,cursor:'pointer',color:T.txt2}}>📦 Archive</button>
+                  <button onClick={()=>setDm(p=>!p)} style={{flex:1,background:T.sur2,border:`1px solid ${T.brd}`,borderRadius:8,padding:'8px 0',fontSize:13,cursor:'pointer',color:T.txt2}}>{dm?'☀️ Light':'🌙 Dark'}</button>
+                </div>
+              )}
               <div style={{borderTop:`1px solid ${T.brd}`,paddingTop:10,display:'flex',gap:8}}>
                 <button onClick={()=>{setShowAccount(false);setShowSettings(true);}} style={{flex:1,background:T.sur2,border:`1px solid ${T.brd}`,borderRadius:8,padding:'7px 0',fontSize:12,fontWeight:600,color:T.txt,cursor:'pointer'}}>⚙ Settings</button>
                 <button onClick={handleSignOut} style={{flex:1,background:'#FF3B3012',border:'1px solid #FF3B3030',borderRadius:8,padding:'7px 0',fontSize:12,fontWeight:600,color:'#FF3B30',cursor:'pointer'}}>Sign out</button>
@@ -698,12 +789,12 @@ export default function OneList(){
       </div>
 
       {/* BODY */}
-      <div style={{display:'flex'}}>
+      <div style={{display:'flex',flexDirection:(data?.settings?.todaySide||'left')==='right'?'row-reverse':'row'}}>
 
         {/* SIDEBAR */}
         <div className="sb">
           {sbOpen ? (
-            <div style={{width:280,flexShrink:0,background:SBG,borderRight:`1px solid ${SBR}`,position:'sticky',top:57,height:'calc(100vh - 57px)',display:'flex',flexDirection:'column'}}>
+          <div style={{width:280,flexShrink:0,background:SBG,borderRight:`1px solid ${SBR}`,position:'sticky',top:57,height:'calc(100vh - 57px)',display:'flex',flexDirection:'column'}}>
               {/* Sidebar header */}
               <div style={{flexShrink:0,padding:'16px 14px 8px'}}>
                 <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:4}}>
@@ -716,7 +807,7 @@ export default function OneList(){
                   <input value={quickAdd} onChange={e=>setQuickAdd(e.target.value)} onKeyDown={e=>e.key==='Enter'&&quickAddFn()} placeholder="Quick add to Today…" style={{flex:1,background:T.sur,border:`1.5px solid ${T.brd}`,borderRadius:8,padding:'7px 10px',fontSize:12,color:T.txt,fontFamily:'inherit',outline:'none'}}/>
                   <button onClick={quickAddFn} style={{background:'#FF6B35',border:'none',borderRadius:8,padding:'7px 11px',cursor:'pointer',fontSize:16,color:'white',fontWeight:700}}>+</button>
                 </div>
-              </div>
+              </div>{/* end sidebar header */}
 
               {/* Scrollable tasks */}
               <div style={{flex:1,overflowY:'auto',padding:'8px 14px 0',minHeight:0}}>
@@ -839,11 +930,12 @@ export default function OneList(){
           )}
         </div>
 
-        {/* MAIN — split panel: dashboard always left, project slides in on right */}
+        {/* MAIN — split panel: dashboard left, project slides in on right */}
+        {/* On mobile: project opens full screen */}
         <div style={{flex:1,display:'flex',minHeight:'calc(100vh - 57px)',overflow:'hidden'}}>
 
-          {/* ── Left: Dashboard (always visible) ── */}
-          <div style={{flex:currentProj?'0 0 50%':'1',overflowY:'auto',minHeight:'calc(100vh - 57px)',transition:'flex .25s ease',borderRight:currentProj?`1px solid ${T.brd}`:'none'}}>
+          {/* Dashboard panel */}
+          <div style={{flex:currentProj&&!isMobile?'0 0 50%':'1',overflowY:'auto',minHeight:'calc(100vh - 57px)',transition:'flex .25s ease',borderRight:currentProj&&!isMobile?`1px solid ${T.brd}`:'none',display:isMobile&&currentProj?'none':'block'}}>
 
             {(view==='dashboard'||view.startsWith('project-'))&&(
               <div style={{padding:24}}>
@@ -949,7 +1041,7 @@ export default function OneList(){
                       </div>
                       <div onDragOver={e=>e.preventDefault()} onDrop={e=>{e.preventDefault();const tid=e.dataTransfer.getData('taskId');if(tid)moveTask(tid,null);setDragTask(null);}}>
                         {allTasks.length===0&&<div style={{fontSize:13,color:T.txt3,fontStyle:'italic',padding:'8px 0'}}>{filterProject?'No tasks for this filter':'No tasks yet'}</div>}
-                        {allTasks.map(t=><TaskCard key={t.id} task={t} T={T} dm={dm} getProj={getProj} projects={projects} expTask={expTask} setExpTask={setExpTask} toggleDone={toggleDone} toggleSub={toggleSub} addToToday={addToToday} delTask={delTask} openEdit={openEdit} moveTask={moveTask} onRename={renameTask} toggleTaskProject={toggleTaskProject} togglePinTop={togglePinTop}/>)}
+                        {allTasks.map(t=><TaskCard key={t.id} task={t} T={T} dm={dm} getProj={getProj} projects={projects} expTask={expTask} setExpTask={setExpTask} toggleDone={toggleDone} toggleSub={toggleSub} addToToday={addToToday} delTask={delTask} openEdit={openEdit} moveTask={moveTask} onRename={renameTask} toggleTaskProject={toggleTaskProject} togglePinTop={togglePinTop} isMobile={isMobile}/>)}
                       </div>
                     </>
                   );
@@ -1001,11 +1093,11 @@ export default function OneList(){
                     <button onClick={()=>inlineAddTask(currentProj.id,inlineAdd[currentProj.id]||'')} style={{background:currentProj.color,border:'none',borderRadius:10,padding:'10px 14px',cursor:'pointer',fontSize:18,color:'white',fontWeight:700}}>+</button>
                   </div>
                   {active.length===0&&<div style={{fontSize:13,color:T.txt3,fontStyle:'italic',padding:'12px 0'}}>No active tasks — type above to add one!</div>}
-                  {active.map(t=><TaskCard key={t.id} task={t} T={T} dm={dm} getProj={getProj} projects={projects} expTask={expTask} setExpTask={setExpTask} toggleDone={toggleDone} toggleSub={toggleSub} addToToday={addToToday} delTask={delTask} openEdit={openEdit} moveTask={moveTask} onRename={renameTask} toggleTaskProject={toggleTaskProject} togglePinTop={togglePinTop}/>)}
+                  {active.map(t=><TaskCard key={t.id} task={t} T={T} dm={dm} getProj={getProj} projects={projects} expTask={expTask} setExpTask={setExpTask} toggleDone={toggleDone} toggleSub={toggleSub} addToToday={addToToday} delTask={delTask} openEdit={openEdit} moveTask={moveTask} onRename={renameTask} toggleTaskProject={toggleTaskProject} togglePinTop={togglePinTop} isMobile={isMobile}/>)}
                   {done.length>0&&(
                     <div style={{marginTop:20}}>
                       <div style={{fontSize:11,fontWeight:700,color:T.txt3,textTransform:'uppercase',letterSpacing:'0.8px',marginBottom:12}}>Completed ({done.length})</div>
-                      {done.map(t=><TaskCard key={t.id} task={t} T={T} dm={dm} getProj={getProj} projects={projects} expTask={expTask} setExpTask={setExpTask} toggleDone={toggleDone} toggleSub={toggleSub} addToToday={addToToday} delTask={delTask} openEdit={openEdit} moveTask={moveTask} onRename={renameTask} toggleTaskProject={toggleTaskProject} togglePinTop={togglePinTop}/>)}
+                      {done.map(t=><TaskCard key={t.id} task={t} T={T} dm={dm} getProj={getProj} projects={projects} expTask={expTask} setExpTask={setExpTask} toggleDone={toggleDone} toggleSub={toggleSub} addToToday={addToToday} delTask={delTask} openEdit={openEdit} moveTask={moveTask} onRename={renameTask} toggleTaskProject={toggleTaskProject} togglePinTop={togglePinTop} isMobile={isMobile}/>)}
                     </div>
                   )}
                 </div>
@@ -1014,12 +1106,12 @@ export default function OneList(){
           })()}
 
         </div>{/* end right panel / split row */}
-      </div>{/* end body flex row */}
+      </div>{/* end split panel */}
 
       {/* ── Mobile FABs ── */}
       {/* Today FAB — mobile only */}
       <button className="vfab" onClick={()=>setShowMobileToday(true)} style={{position:'fixed',bottom:24,right:24,zIndex:300,width:58,height:58,borderRadius:'50%',background:'#FF6B35',border:'none',boxShadow:'0 4px 24px rgba(255,107,53,.4)',cursor:'pointer',display:'none',alignItems:'center',justifyContent:'center',flexDirection:'column',color:'white'}}>
-        <span style={{fontSize:18,lineHeight:1}}>☀️</span>
+        <span style={{fontSize:18,lineHeight:1}}>📋</span>
         {todayActive>0&&<span style={{fontSize:11,fontWeight:700,lineHeight:1,marginTop:2}}>{todayActive}</span>}
       </button>
 
@@ -1078,16 +1170,27 @@ export default function OneList(){
 
             <div style={{marginBottom:24}}>
               <Lbl>Daily reset time</Lbl>
-              <p style={{fontSize:12,color:T.txt3,marginBottom:10}}>Completed tasks archive and incomplete tasks return to their projects at this hour every day.</p>
-              <div style={{display:'flex',flexWrap:'wrap',gap:8}}>
-                {[0,1,2,3,4,5,6,12].map(h=>{
-                  const active=(data.settings?.resetHour??3)===h;
-                  return(
-                    <button key={h} onClick={()=>setResetHour(h)} style={{padding:'7px 14px',borderRadius:100,border:`1.5px solid ${active?'#FF6B35':T.brd}`,background:active?'#FF6B35':T.sur2,color:active?'white':T.txt,fontSize:13,fontWeight:600,cursor:'pointer'}}>
-                      {h===0?'Midnight':h===12?'Noon':`${h}:00 AM`}
-                    </button>
-                  );
-                })}
+              <p style={{fontSize:12,color:T.txt3,marginBottom:10}}>Completed tasks archive and incomplete tasks return to their projects at this time every day.</p>
+              <div style={{display:'flex',gap:10,alignItems:'center'}}>
+                <input type="time" value={`${String(data?.settings?.resetHour??3).padStart(2,'0')}:${String(data?.settings?.resetMinute??0).padStart(2,'0')}`}
+                  onChange={e=>{
+                    const [h,m]=e.target.value.split(':').map(Number);
+                    upd(prev=>({...prev,settings:{...(prev.settings||{}),resetHour:h,resetMinute:m}}));
+                  }}
+                  style={{background:T.sur2,border:`1.5px solid ${T.brd}`,borderRadius:10,padding:'10px 14px',fontSize:16,fontWeight:600,color:T.txt,fontFamily:'inherit',outline:'none',cursor:'pointer'}}/>
+                <span style={{fontSize:12,color:T.txt3}}>every day</span>
+              </div>
+            </div>
+
+            <div style={{marginBottom:24,padding:16,background:T.sur2,borderRadius:12}}>
+              <div style={{fontSize:13,fontWeight:600,color:T.txt,marginBottom:12}}>Today sidebar position</div>
+              <div style={{display:'flex',gap:8}}>
+                {[{v:'left',l:'⬅ Left'},{v:'right',l:'Right ➡'}].map(({v,l})=>(
+                  <button key={v} onClick={()=>upd(prev=>({...prev,settings:{...(prev.settings||{}),todaySide:v}}))}
+                    style={{flex:1,padding:'8px 0',borderRadius:8,border:`1.5px solid ${(data?.settings?.todaySide||'left')===v?'#FF6B35':T.brd}`,background:(data?.settings?.todaySide||'left')===v?'#FF6B35':T.sur,color:(data?.settings?.todaySide||'left')===v?'white':T.txt,fontSize:13,fontWeight:600,cursor:'pointer'}}>
+                    {l}
+                  </button>
+                ))}
               </div>
             </div>
 
