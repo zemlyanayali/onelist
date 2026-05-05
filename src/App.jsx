@@ -144,7 +144,6 @@ function TaskCard({task,T,dm,getProj,projects,expTask,setExpTask,toggleDone,togg
   const onTouchStart=e=>{
     touchStartX.current=e.touches[0].clientX;
     touchStartY.current=e.touches[0].clientY;
-    // Hold to edit
     const t=setTimeout(()=>{ if(!task.done) startEdit({stopPropagation:()=>{}}); },600);
     setHoldTimer(t);
   };
@@ -152,21 +151,25 @@ function TaskCard({task,T,dm,getProj,projects,expTask,setExpTask,toggleDone,togg
     clearTimeout(holdTimer);
     const dx=e.touches[0].clientX-touchStartX.current;
     const dy=e.touches[0].clientY-touchStartY.current;
-    if(Math.abs(dy)>Math.abs(dx))return; // vertical scroll, ignore
+    if(Math.abs(dy)>Math.abs(dx))return;
     setSwipeX(dx);
   };
   const onTouchEnd=()=>{
     clearTimeout(holdTimer);
-    if(swipeX>SWIPE_THRESHOLD){
-      // Swipe right: add to Today
+    if(swipeX>SWIPE2_THRESHOLD){
+      // Swipe right ×2 → add to Today immediately, green flash
       addToToday(task.id);
+      setSwipeState('right2');
+      setTimeout(()=>setSwipeState(null),700);
+    } else if(swipeX>SWIPE_THRESHOLD){
+      // Swipe right ×1 → show Today + Pin action row
       setSwipeState('right');
-      setTimeout(()=>setSwipeState(null),600);
     } else if(swipeX<-SWIPE2_THRESHOLD){
-      // Double swipe left: delete with confirm
+      // Swipe left ×2 → delete confirm
       setShowDelConfirm(true);
+      setSwipeState(null);
     } else if(swipeX<-SWIPE_THRESHOLD){
-      // Single swipe left: show left menu
+      // Swipe left ×1 → show tag dots + delete action row
       setSwipeState('left');
     }
     setSwipeX(0);
@@ -174,6 +177,7 @@ function TaskCard({task,T,dm,getProj,projects,expTask,setExpTask,toggleDone,togg
 
   const resetSwipe=()=>setSwipeState(null);
 
+  // Delete confirm
   if(showDelConfirm) return(
     <div style={{background:'#FF3B3012',border:'1px solid #FF3B3040',borderRadius:12,padding:'12px 14px',marginBottom:8,display:'flex',alignItems:'center',gap:10}}>
       <span style={{flex:1,fontSize:13,color:T.txt}}>Delete "{task.title}"?</span>
@@ -182,15 +186,34 @@ function TaskCard({task,T,dm,getProj,projects,expTask,setExpTask,toggleDone,togg
     </div>
   );
 
+  // Swipe right ×2 — green "Added to Today" flash
+  if(swipeState==='right2') return(
+    <div style={{background:'#34C75918',border:'1px solid #34C75960',borderRadius:12,padding:'12px 14px',marginBottom:8,display:'flex',alignItems:'center',gap:8,animation:'slideIn .15s ease'}}>
+      <span style={{fontSize:16}}>✅</span>
+      <span style={{fontSize:13,fontWeight:600,color:'#34C759'}}>Added to Today!</span>
+    </div>
+  );
+
+  // Swipe right ×1 — Today + Pin row
+  if(swipeState==='right') return(
+    <div style={{background:T.sur2,border:`1px solid ${T.brd}`,borderRadius:12,padding:'10px 14px',marginBottom:8,display:'flex',alignItems:'center',gap:8,animation:'slideIn .15s ease'}}>
+      <span style={{flex:1,fontSize:13,fontWeight:500,color:T.txt,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{task.title}</span>
+      <button onClick={()=>{addToToday(task.id);resetSwipe();}} style={{background:'#FF6B35',border:'none',borderRadius:8,padding:'6px 12px',fontSize:12,fontWeight:700,color:'white',cursor:'pointer',whiteSpace:'nowrap'}}>☀ Today</button>
+      <button onClick={()=>{togglePinTop&&togglePinTop(task.id);resetSwipe();}} style={{background:task.pinTop?'#FF6B35':'#FF6B3518',border:`1.5px solid #FF6B3560`,borderRadius:8,padding:'6px 10px',fontSize:14,cursor:'pointer',color:task.pinTop?'white':'#FF6B35'}}>📌</button>
+      <button onClick={resetSwipe} style={{background:T.sur,border:`1px solid ${T.brd}`,borderRadius:8,padding:'6px 10px',fontSize:12,cursor:'pointer',color:T.txt3}}>✕</button>
+    </div>
+  );
+
+  // Swipe left ×1 — tag dots + delete row
   if(swipeState==='left') return(
     <div style={{background:T.sur2,border:`1px solid ${T.brd}`,borderRadius:12,padding:'10px 14px',marginBottom:8,display:'flex',alignItems:'center',gap:8,animation:'slideIn .15s ease'}}>
       <span style={{flex:1,fontSize:13,fontWeight:500,color:T.txt,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{task.title}</span>
       {projects&&projects.map(p=>(
-        <button key={p.id} onClick={()=>{toggleTaskProject&&toggleTaskProject(task.id,p.id);resetSwipe();}} title={p.name} style={{width:28,height:28,borderRadius:'50%',background:task.projectId===p.id?p.color:p.color+'22',border:`2px solid ${p.color}`,cursor:'pointer',flexShrink:0,padding:0,fontSize:10,color:task.projectId===p.id?'white':p.color,fontWeight:700}}/>
+        <button key={p.id} onClick={()=>{toggleTaskProject&&toggleTaskProject(task.id,p.id);}} title={p.name}
+          style={{width:26,height:26,borderRadius:'50%',background:task.projectId===p.id?p.color:'transparent',border:`2px solid ${p.color}`,cursor:'pointer',flexShrink:0,padding:0,transition:'all .15s'}}/>
       ))}
-      <button onClick={()=>{togglePinTop&&togglePinTop(task.id);resetSwipe();}} style={{background:task.pinTop?'#FF6B35':'#FF6B3522',border:`1px solid #FF6B3560`,borderRadius:8,padding:'4px 10px',fontSize:12,cursor:'pointer',color:task.pinTop?'white':'#FF6B35'}}>📌</button>
-      <button onClick={()=>setShowDelConfirm(true)} style={{background:'#FF3B3012',border:'1px solid #FF3B3040',borderRadius:8,padding:'4px 10px',fontSize:12,cursor:'pointer',color:'#FF3B30'}}>🗑</button>
-      <button onClick={resetSwipe} style={{background:T.sur,border:`1px solid ${T.brd}`,borderRadius:8,padding:'4px 8px',fontSize:12,cursor:'pointer',color:T.txt3}}>✕</button>
+      <button onClick={()=>setShowDelConfirm(true)} style={{background:'#FF3B3012',border:'1px solid #FF3B3040',borderRadius:8,padding:'6px 10px',fontSize:14,cursor:'pointer',color:'#FF3B30'}}>🗑</button>
+      <button onClick={resetSwipe} style={{background:T.sur,border:`1px solid ${T.brd}`,borderRadius:8,padding:'6px 10px',fontSize:12,cursor:'pointer',color:T.txt3}}>✕</button>
     </div>
   );
 
@@ -202,8 +225,8 @@ function TaskCard({task,T,dm,getProj,projects,expTask,setExpTask,toggleDone,togg
       onTouchMove={isMobile?onTouchMove:undefined}
       onTouchEnd={isMobile?onTouchEnd:undefined}
       style={{
-        background:swipeState==='right'?'#34C75912':T.sur,
-        border:`1px solid ${swipeState==='right'?'#34C759':T.brd}`,
+        background:swipeState==='right2'?'#34C75912':T.sur,
+        border:`1px solid ${swipeState==='right2'?'#34C759':T.brd}`,
         borderRadius:12,padding:'11px 14px',marginBottom:8,
         borderLeft:`3px solid ${proj?.color||T.brd}`,
         transition:'box-shadow .15s, background .2s, transform .1s',
