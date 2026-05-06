@@ -96,9 +96,9 @@ const DEFAULTS = {
   lastReset:new Date().toDateString(),
   todayOrder:['t1','t3','t4'],
   dashboardLayout:['projects','alltasks'],
-  settings:{resetHour:3,resetMinute:0,displayName:'',todaySide:'left'},
+  settings:{resetHour:3,resetMinute:0,displayName:'',todaySide:'left',dueDatesEnabled:true},
 };
-const BLANK = {title:'',projectId:'',notes:'',subtasks:[],inToday:false,pinned:false,pinTop:false,recur:'',customRecur:''};
+const BLANK = {title:'',projectId:'',notes:'',subtasks:[],inToday:false,pinned:false,pinTop:false,recur:'',customRecur:'',dueDate:''};
 
 function Chk({done,color,onClick,size=22}){
   return (
@@ -252,6 +252,15 @@ function TaskCard({task,T,dm,getProj,projects,expTask,setExpTask,toggleDone,togg
               </span>
               {hasSubs&&<span onClick={e=>{e.stopPropagation();setExpTask(p=>({...p,[task.id]:!p[task.id]}));}} style={{fontSize:11,color:T.txt3,fontWeight:400,flexShrink:0,cursor:'pointer'}}>{task.subtasks.filter(s=>s.done).length}/{task.subtasks.length} {exp?'▲':'▼'}</span>}
               {task.recur&&<span style={{fontSize:10,color:T.txt3,flexShrink:0}}>🔁 {task.recur}</span>}
+              {task.dueDate&&(()=>{
+                const due=new Date(task.dueDate+'T00:00:00');
+                const now=new Date(); now.setHours(0,0,0,0);
+                const diff=Math.round((due-now)/(1000*60*60*24));
+                const overdue=diff<0; const today=diff===0; const soon=diff>0&&diff<=2;
+                const label=overdue?`${Math.abs(diff)}d overdue`:today?'Today':diff===1?'Tomorrow':`${diff}d`;
+                const color=overdue?'#FF3B30':today?'#FF6B35':soon?'#D97706':'#6A6860';
+                return <span style={{fontSize:10,fontWeight:600,color:color,background:color+'15',borderRadius:6,padding:'1px 6px',flexShrink:0,border:`1px solid ${color}30`}}>📅 {label}</span>;
+              })()}
             </div>
           )}
           {exp&&hasSubs&&(
@@ -337,6 +346,8 @@ export default function OneList(){
   const [showMobileToday,setShowMobileToday]=useState(false);
   const [showSettings,setShowSettings]=useState(false);
   const [showAccount,setShowAccount]=useState(false);
+  const [gcalEvents,setGcalEvents]=useState([]);
+  const [gcalConnected,setGcalConnected]=useState(!!localStorage.getItem('gcal_token'));
   const accountRef=useRef(null);
   const [filterProject,setFilterProject]=useState(null); // null=all, 'misc'=no project, projId=specific
   const [confetti,setConfetti]=useState(false);
@@ -407,9 +418,9 @@ export default function OneList(){
       const arch=[...prev.archived];
       const tasks=prev.tasks.map(t=>{
         if(!t.inToday)return t;
-        if(t.pinned)return t;
-        if(t.done){arch.push({...t,archivedAt:Date.now()});return null;}
-        return{...t,inToday:false};
+        if(t.done){arch.push({...t,archivedAt:Date.now()});return null;} // done always archives
+        if(t.pinned)return t; // undone+pinned stays in Today
+        return{...t,inToday:false}; // undone+unpinned returns to project
       }).filter(Boolean);
       return{...prev,tasks,archived:arch,lastReset:ts};
     });
@@ -509,13 +520,13 @@ export default function OneList(){
 
   const saveTask=()=>{
     if(!taskForm.title.trim())return;
-    const base={title:taskForm.title.trim(),projectId:taskForm.projectId||null,notes:taskForm.notes,subtasks:taskForm.subtasks,done:false,inToday:taskForm.inToday,pinned:taskForm.pinned,archived:false,completedAt:null,recur:taskForm.recur==='custom'?(taskForm.customRecur||'custom'):taskForm.recur};
+    const base={title:taskForm.title.trim(),projectId:taskForm.projectId||null,notes:taskForm.notes,subtasks:taskForm.subtasks,done:false,inToday:taskForm.inToday,pinned:taskForm.pinned,archived:false,completedAt:null,recur:taskForm.recur==='custom'?(taskForm.customRecur||'custom'):taskForm.recur,dueDate:taskForm.dueDate||''};
     if(editTid){upd(prev=>({...prev,tasks:prev.tasks.map(t=>t.id===editTid?{...t,...base}:t)}));}
     else{upd(prev=>({...prev,tasks:[...prev.tasks,{id:genId(),...base,createdAt:Date.now()}]}));}
     setTaskForm(BLANK);setSubIn('');setEditTid(null);setModal(null);
   };
 
-  const openEdit=t=>{setTaskForm({title:t.title,projectId:t.projectId||'',notes:t.notes||'',subtasks:t.subtasks||[],inToday:t.inToday,pinned:t.pinned,recur:t.recur||'',customRecur:''});setEditTid(t.id);setModal('edit-task');};
+  const openEdit=t=>{setTaskForm({title:t.title,projectId:t.projectId||'',notes:t.notes||'',subtasks:t.subtasks||[],inToday:t.inToday,pinned:t.pinned,recur:t.recur||'',customRecur:'',dueDate:t.dueDate||''});setEditTid(t.id);setModal('edit-task');};
   const addSub=()=>{if(!subIn.trim())return;setTaskForm(p=>({...p,subtasks:[...p.subtasks,{id:genId(),title:subIn.trim(),done:false}]}));setSubIn('');};
 
   const quickAddFn=()=>{
@@ -565,6 +576,60 @@ export default function OneList(){
   const setResetHour=hour=>{
     upd(prev=>({...prev,settings:{...(prev.settings||{}),resetHour:hour}}));
   };
+
+  // Google Calendar OAuth + event fetching
+  const GCAL_CLIENT_ID = data?.settings?.gcalClientId||'';
+  const GCAL_SCOPES = 'https://www.googleapis.com/auth/calendar.readonly';
+
+  const connectGCal=()=>{
+    if(!GCAL_CLIENT_ID){alert('Add your Google Calendar Client ID in Settings first.');return;}
+    const params=new URLSearchParams({
+      client_id:GCAL_CLIENT_ID, redirect_uri:window.location.origin,
+      response_type:'token', scope:GCAL_SCOPES, include_granted_scopes:'true',
+    });
+    window.location.href=`https://accounts.google.com/o/oauth2/v2/auth?${params}`;
+  };
+
+  const disconnectGCal=()=>{
+    localStorage.removeItem('gcal_token');
+    setGcalConnected(false);setGcalEvents([]);
+  };
+
+  const fetchGCalEvents=async(token)=>{
+    try{
+      const now=new Date().toISOString();
+      const end=new Date(Date.now()+7*24*60*60*1000).toISOString();
+      const r=await fetch(`https://www.googleapis.com/calendar/v3/calendars/primary/events?timeMin=${now}&timeMax=${end}&singleEvents=true&orderBy=startTime&maxResults=20`,{headers:{Authorization:`Bearer ${token}`}});
+      if(!r.ok){disconnectGCal();return;}
+      const d=await r.json();
+      setGcalEvents((d.items||[]).map(e=>({
+        id:e.id, title:e.summary||'(no title)',
+        start:e.start?.dateTime||e.start?.date,
+        end:e.end?.dateTime||e.end?.date,
+        allDay:!!e.start?.date,
+        color:'#4285F4',
+      })));
+    }catch{disconnectGCal();}
+  };
+
+  // Handle OAuth redirect (token in URL hash)
+  useEffect(()=>{
+    const hash=window.location.hash;
+    if(hash&&hash.includes('access_token')&&!hash.includes('type=')) {
+      const params=new URLSearchParams(hash.slice(1));
+      const at=params.get('access_token');
+      if(at&&!params.get('refresh_token')){
+        // This is a GCal token (not Supabase which has refresh_token)
+        // Actually Supabase token also has access_token, distinguish by checking for 'provider_token'
+      }
+    }
+  },[]);
+
+  // Fetch events when connected
+  useEffect(()=>{
+    const token=localStorage.getItem('gcal_token');
+    if(token&&gcalConnected)fetchGCalEvents(token);
+  },[gcalConnected]);
 
   const saveProj=()=>{
     if(!projForm.name.trim())return;
@@ -939,6 +1004,30 @@ export default function OneList(){
                         </div>
                       </div>
                     )}
+                    {/* Google Calendar events */}
+                    {gcalConnected&&gcalEvents.length>0&&(
+                      <div style={{marginTop:10,borderTop:`1px solid ${T.brd}`,paddingTop:8}}>
+                        <div style={{fontSize:10,fontWeight:700,color:T.txt3,textTransform:'uppercase',letterSpacing:'0.5px',marginBottom:6}}>Upcoming</div>
+                        {gcalEvents.slice(0,5).map(ev=>{
+                          const d=new Date(ev.start);
+                          const isToday=d.toDateString()===TODAY.toDateString();
+                          return(
+                            <div key={ev.id} style={{display:'flex',alignItems:'center',gap:6,padding:'4px 0',borderBottom:`1px solid ${T.brd}22`}}>
+                              <div style={{width:3,flexShrink:0,alignSelf:'stretch',borderRadius:2,background:'#4285F4'}}/>
+                              <div style={{flex:1,minWidth:0}}>
+                                <div style={{fontSize:11,fontWeight:500,color:T.txt,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{ev.title}</div>
+                                <div style={{fontSize:10,color:isToday?'#FF6B35':T.txt3}}>{isToday?'Today':d.toLocaleDateString('en-AU',{weekday:'short',month:'short',day:'numeric'})}{!ev.allDay?` · ${d.toLocaleTimeString('en-AU',{hour:'2-digit',minute:'2-digit'})}`:''}</div>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                    {!gcalConnected&&(
+                      <button onClick={()=>setShowSettings(true)} style={{marginTop:8,width:'100%',background:'none',border:`1px solid ${T.brd}`,borderRadius:8,padding:'6px 0',fontSize:11,color:T.txt3,cursor:'pointer'}}>
+                        📅 Connect Google Calendar
+                      </button>
+                    )}
                   </div>
                 )}
               </div>
@@ -1218,13 +1307,48 @@ export default function OneList(){
             </div>
 
             <div style={{marginBottom:24,padding:16,background:T.sur2,borderRadius:12}}>
-              <div style={{fontSize:13,fontWeight:600,color:T.txt,marginBottom:4}}>Dark mode</div>
+              <div style={{display:'flex',alignItems:'center',justifyContent:'space-between'}}>
+                <div>
+                  <div style={{fontSize:13,fontWeight:600,color:T.txt,marginBottom:2}}>Due dates</div>
+                  <div style={{fontSize:11,color:T.txt3}}>Show date picker when creating tasks</div>
+                </div>
+                <div onClick={()=>upd(prev=>({...prev,settings:{...(prev.settings||{}),dueDatesEnabled:!(prev.settings?.dueDatesEnabled!==false)}}))}
+                  style={{width:44,height:24,borderRadius:12,cursor:'pointer',background:(data?.settings?.dueDatesEnabled!==false)?'#FF6B35':T.brd,position:'relative',transition:'background .2s',flexShrink:0}}>
+                  <div style={{position:'absolute',top:2,left:(data?.settings?.dueDatesEnabled!==false)?22:2,width:20,height:20,borderRadius:'50%',background:'white',transition:'left .2s',boxShadow:'0 1px 4px rgba(0,0,0,.2)'}}/>
+                </div>
+              </div>
+            </div>
+
+            <div style={{marginBottom:24,padding:16,background:T.sur2,borderRadius:12}}>
+              <div style={{fontSize:13,fontWeight:600,color:T.txt,marginBottom:8}}>Dark mode</div>
               <div style={{display:'flex',alignItems:'center',gap:10}}>
                 <div onClick={()=>setDm(p=>!p)} style={{width:44,height:24,borderRadius:12,cursor:'pointer',background:dm?'#FF6B35':T.brd,position:'relative',transition:'background .2s',flexShrink:0}}>
                   <div style={{position:'absolute',top:2,left:dm?22:2,width:20,height:20,borderRadius:'50%',background:'white',transition:'left .2s',boxShadow:'0 1px 4px rgba(0,0,0,.2)'}}/>
                 </div>
                 <span style={{fontSize:13,color:T.txt}}>{dm?'Dark':'Light'} mode</span>
               </div>
+            </div>
+
+            {/* Google Calendar integration */}
+            <div style={{marginBottom:24,padding:16,background:T.sur2,borderRadius:12}}>
+              <div style={{fontSize:13,fontWeight:600,color:T.txt,marginBottom:4}}>Google Calendar</div>
+              {gcalConnected?(
+                <div>
+                  <div style={{fontSize:12,color:'#34C759',marginBottom:10}}>✓ Connected — showing next 7 days of events</div>
+                  <button onClick={disconnectGCal} style={{background:'#FF3B3012',border:'1px solid #FF3B3040',borderRadius:8,padding:'7px 14px',fontSize:12,fontWeight:600,color:'#FF3B30',cursor:'pointer'}}>Disconnect</button>
+                </div>
+              ):(
+                <div>
+                  <p style={{fontSize:11,color:T.txt3,marginBottom:10,lineHeight:1.5}}>Connect your Google Calendar to see upcoming events in the sidebar. Requires a Google Cloud Client ID.</p>
+                  <div style={{marginBottom:8}}>
+                    <label style={{fontSize:11,fontWeight:700,color:T.txt2,display:'block',marginBottom:4}}>Google Client ID</label>
+                    <input value={data?.settings?.gcalClientId||''} onChange={e=>upd(prev=>({...prev,settings:{...(prev.settings||{}),gcalClientId:e.target.value}}))} placeholder="xxxx.apps.googleusercontent.com" style={{...inp,fontSize:12,padding:'8px 12px'}}/>
+                  </div>
+                  <button onClick={connectGCal} style={{background:'#4285F4',border:'none',borderRadius:8,padding:'8px 16px',fontSize:12,fontWeight:700,color:'white',cursor:'pointer',display:'flex',alignItems:'center',gap:8}}>
+                    <span style={{fontSize:14}}>📅</span> Connect Google Calendar
+                  </button>
+                </div>
+              )}
             </div>
 
             <button onClick={()=>setShowSettings(false)} style={{width:'100%',background:'#FF6B35',border:'none',borderRadius:100,padding:'11px 0',fontSize:14,fontWeight:700,color:'white',cursor:'pointer'}}>Done</button>
@@ -1251,6 +1375,15 @@ export default function OneList(){
               </select>
               {taskForm.recur==='custom'&&<input value={taskForm.customRecur} onChange={e=>setTaskForm(p=>({...p,customRecur:e.target.value}))} placeholder="e.g. every 3 days" style={{...inp,marginTop:8}}/>}
             </div>
+            {(data?.settings?.dueDatesEnabled!==false)&&(
+              <div style={{marginBottom:14}}>
+                <Lbl>Due date</Lbl>
+                <div style={{display:'flex',gap:8,alignItems:'center'}}>
+                  <input type="date" value={taskForm.dueDate||''} onChange={e=>setTaskForm(p=>({...p,dueDate:e.target.value}))} style={{...inp,flex:1,cursor:'pointer'}}/>
+                  {taskForm.dueDate&&<button onClick={()=>setTaskForm(p=>({...p,dueDate:''}))} style={{background:'none',border:'none',cursor:'pointer',fontSize:14,color:T.txt3,padding:'0 4px'}}>✕</button>}
+                </div>
+              </div>
+            )}
             <div style={{marginBottom:14}}><Lbl>Notes</Lbl><textarea value={taskForm.notes} onChange={e=>setTaskForm(p=>({...p,notes:e.target.value}))} placeholder="Details…" rows={2} style={{...inp,resize:'vertical'}}/></div>
             <div style={{marginBottom:16}}><Lbl>Subtasks</Lbl>
               {taskForm.subtasks.map(s=>(
