@@ -52,22 +52,22 @@ async function sbLoad(token, userId) {
 }
 
 async function sbSave(token, userId, rowId, payload) {
-  try {
-    if (rowId) {
-      await fetch(`${SB_URL}/rest/v1/user_data?id=eq.${rowId}`, {
-        method:'PATCH', headers: sbHdr(token),
-        body: JSON.stringify({ payload, updated_at: new Date().toISOString() })
-      });
-      return rowId;
-    } else {
-      const r = await fetch(`${SB_URL}/rest/v1/user_data`, {
-        method:'POST', headers: sbHdr(token, { Prefer:'return=representation' }),
-        body: JSON.stringify({ user_id:userId, payload, updated_at: new Date().toISOString() })
-      });
-      const rows = await r.json();
-      return rows[0]?.id || null;
-    }
-  } catch { return rowId; }
+  if (rowId) {
+    const r = await fetch(`${SB_URL}/rest/v1/user_data?id=eq.${rowId}`, {
+      method:'PATCH', headers: sbHdr(token),
+      body: JSON.stringify({ payload, updated_at: new Date().toISOString() })
+    });
+    if (!r.ok) throw new Error(`${r.status}`);
+    return rowId;
+  } else {
+    const r = await fetch(`${SB_URL}/rest/v1/user_data`, {
+      method:'POST', headers: sbHdr(token, { Prefer:'return=representation' }),
+      body: JSON.stringify({ user_id:userId, payload, updated_at: new Date().toISOString() })
+    });
+    if (!r.ok) throw new Error(`${r.status}`);
+    const rows = await r.json();
+    return rows[0]?.id || null;
+  }
 }
 
 const COLORS = ['#3B82F6','#EC4899','#059669','#D97706','#7C3AED','#EA580C','#0891B2','#E11D48','#65A30D','#9333EA','#0EA5E9','#F59E0B'];
@@ -355,7 +355,10 @@ export default function OneList(){
   const [dragSectionOver,setDragSectionOver]=useState(null);
   const prevActiveRef=useRef(null);
   const recRef  = useRef(null);
-  const dbRowId = useRef(null); // tracks Supabase row id
+  const dbRowId = useRef(null);
+  const isFirstLoad = useRef(true);   // skip save on initial data load
+  const saveTimer = useRef(null);
+  const [saveStatus, setSaveStatus] = useState('saved'); // 'saved'|'saving'|'error'
 
   // load — check saved session first, then load data
   useEffect(()=>{
@@ -375,7 +378,7 @@ export default function OneList(){
             window.history.replaceState(null, '', window.location.pathname); // clean URL
             setSession(sess);
             const row = await sbLoad(sess.access_token, sess.user_id);
-            if (row?.payload) { dbRowId.current=row.id; setData(row.payload); } else setData(DEFAULTS);
+            isFirstLoad.current=true; if (row?.payload) { dbRowId.current=row.id; setData(row.payload); } else setData(DEFAULTS);
             setLoading(false); return;
           } catch {}
         }
@@ -390,6 +393,7 @@ export default function OneList(){
             try { sess = await sbRefresh(saved.refresh_token); localStorage.setItem('onelist_session',JSON.stringify(sess)); row = await sbLoad(sess.access_token, sess.user_id); } catch { localStorage.removeItem('onelist_session'); setLoading(false); return; }
           }
           setSession(sess);
+          isFirstLoad.current=true;
           if (row?.payload) { dbRowId.current=row.id; setData(row.payload); }
           else setData(DEFAULTS);
           setLoading(false); return;
@@ -399,13 +403,50 @@ export default function OneList(){
     })();
   },[]);
 
-  // save — only when logged in
+  // ── Robust save: debounced, skips initial load, refreshes expired token ──────
   useEffect(()=>{
-    if(!data||!session)return;
-    (async()=>{
+    if(!data||!session) return;
+
+    // Skip the very first time data is set (it just loaded from Supabase)
+    if(isFirstLoad.current){ isFirstLoad.current=false; return; }
+
+    clearTimeout(saveTimer.current);
+    setSaveStatus('saving');
+
+    saveTimer.current=setTimeout(async()=>{
+      // Always keep localStorage in sync as fallback
       try { localStorage.setItem('onelist_v3',JSON.stringify(data)); } catch {}
-      try { dbRowId.current=await sbSave(session.access_token,session.user_id,dbRowId.current,data); } catch {}
-    })();
+
+      let sess=session;
+
+      const attemptSave=async(s)=>{
+        const id=await sbSave(s.access_token, s.user_id, dbRowId.current, data);
+        dbRowId.current=id;
+        setSaveStatus('saved');
+      };
+
+      try {
+        await attemptSave(sess);
+      } catch(err) {
+        // If 401/403 → token expired → refresh and retry once
+        if(err.message==='401'||err.message==='403') {
+          try {
+            const stored=JSON.parse(localStorage.getItem('onelist_session')||'{}');
+            if(stored.refresh_token) {
+              sess=await sbRefresh(stored.refresh_token);
+              localStorage.setItem('onelist_session',JSON.stringify(sess));
+              setSession(sess);
+              await attemptSave(sess);
+              return;
+            }
+          } catch {}
+        }
+        setSaveStatus('error');
+        console.warn('Save failed:',err.message);
+      }
+    }, 1500); // 1.5s debounce — batches rapid changes
+
+    return()=>clearTimeout(saveTimer.current);
   },[data]);
 
   useEffect(()=>{
@@ -717,6 +758,7 @@ export default function OneList(){
       localStorage.setItem('onelist_session', JSON.stringify(sess));
       setSession(sess);
       const row = await sbLoad(sess.access_token, sess.user_id);
+      isFirstLoad.current=true;
       if (row?.payload) { dbRowId.current=row.id; setData(row.payload); }
       else setData(DEFAULTS);
     } catch(e) { setAuthErr(e.message); }
@@ -730,7 +772,7 @@ export default function OneList(){
     try {
       const sess = await sbSignUp(authForm.email, authForm.password);
       localStorage.setItem('onelist_session', JSON.stringify(sess));
-      setSession(sess); setData(DEFAULTS);
+      setSession(sess); isFirstLoad.current=true; setData(DEFAULTS);
     } catch(e) { setAuthErr(e.message); }
     setAuthLoad(false);
   };
@@ -835,6 +877,10 @@ export default function OneList(){
         <button onClick={()=>setView('dashboard')} style={{background:'none',border:'none',cursor:'pointer',padding:0}}>
           <span style={{fontFamily:"'Lora',Georgia,serif",fontSize:20,fontWeight:700,color:T.txt,letterSpacing:'-0.5px'}}>One<span style={{color:'#FF6B35'}}>List</span></span>
         </button>
+        {/* Save status indicator */}
+        {saveStatus==='saving'&&<span style={{fontSize:10,color:T.txt3,marginLeft:2}}>saving…</span>}
+        {saveStatus==='error'&&<span title="Changes not saved — check your connection" style={{fontSize:11,fontWeight:700,color:'#FF3B30',background:'#FF3B3012',border:'1px solid #FF3B3030',borderRadius:100,padding:'2px 8px',cursor:'default'}}>⚠ Not saved</span>}
+        {saveStatus==='saved'&&session&&<span style={{fontSize:10,color:T.txt3,opacity:.5}}>✓</span>}
         <div style={{flex:1}}/>
         {!isMobile&&<button onClick={()=>setModal('search')} style={{display:'flex',alignItems:'center',gap:8,background:T.sur2,border:`1px solid ${T.brd}`,borderRadius:100,padding:'7px 14px',cursor:'pointer',fontSize:13,color:T.txt3}}>
           🔍 <span>Search</span> <span style={{fontSize:10,opacity:.6}}>⌘K</span>
