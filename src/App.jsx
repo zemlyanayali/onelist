@@ -619,7 +619,7 @@ export default function OneList(){
   };
 
   // Google Calendar OAuth + event fetching
-  const GCAL_CLIENT_ID = data?.settings?.gcalClientId||'';
+  const GCAL_CLIENT_ID = '25310747435-5tt1t3vil9nfav4tmhrvpugpuqaenc2t.apps.googleusercontent.com';
   const GCAL_SCOPES = 'https://www.googleapis.com/auth/calendar.readonly';
 
   const connectGCal=()=>{
@@ -1152,7 +1152,8 @@ export default function OneList(){
                                 </div>
                               </div>
                               <div style={{fontSize:15,fontWeight:800,color:proj.color,marginBottom:8,fontFamily:"'Lora',Georgia,serif"}}>{proj.name}</div>
-                              <div style={{flex:1}}>
+                              {/* Clickable task preview area — opens project */}
+                              <div onClick={()=>setView(`project-${proj.id}`)} style={{flex:1,cursor:'pointer'}}>
                                 {shown.length===0&&<div style={{fontSize:11,color:proj.color+'77',fontStyle:'italic',marginBottom:6}}>All done! 🎉</div>}
                                 {shown.map((t,i)=>(
                                   <div key={t.id} style={{fontSize:11,color:proj.color+'BB',padding:'2px 0',borderTop:i===0?`1px solid ${proj.color}20`:'none',display:'flex',alignItems:'center',gap:4}}>
@@ -1162,11 +1163,32 @@ export default function OneList(){
                                     {t.subtasks.length>0&&<span style={{fontSize:9,opacity:.55,flexShrink:0}}>{t.subtasks.filter(s=>s.done).length}/{t.subtasks.length}</span>}
                                   </div>
                                 ))}
-                                {active.length>4&&<button onClick={()=>setExpProj(p=>({...p,[proj.id]:!p[proj.id]}))} style={{background:'none',border:'none',cursor:'pointer',fontSize:10,fontWeight:700,color:proj.color,marginTop:4,padding:0}}>{exp?'▲ Less':`▼ +${active.length-4} more`}</button>}
+                                {active.length>4&&<div style={{fontSize:10,fontWeight:700,color:proj.color,marginTop:4}}>+{active.length-4} more</div>}
                               </div>
                               <div style={{display:'flex',gap:6,marginTop:10}}>
-                                <input value={inlineAdd[proj.id]||''} onChange={e=>setInlineAdd(p=>({...p,[proj.id]:e.target.value}))} onKeyDown={e=>e.key==='Enter'&&inlineAddTask(proj.id,inlineAdd[proj.id]||'')} placeholder="Add task…" style={{flex:1,background:proj.color+'12',border:`1px solid ${proj.color}30`,borderRadius:8,padding:'5px 8px',fontSize:11,color:proj.color,fontFamily:'inherit',outline:'none'}}/>
-                                <button onClick={()=>setView(`project-${proj.id}`)} style={{background:isSelected?proj.color:proj.color+'22',border:'none',borderRadius:8,padding:'5px 10px',fontSize:11,fontWeight:700,color:isSelected?'white':proj.color,cursor:'pointer',whiteSpace:'nowrap'}}>{isSelected?'Viewing':'Open →'}</button>
+                                <input
+                                  value={inlineAdd[proj.id]||''}
+                                  onChange={e=>setInlineAdd(p=>({...p,[proj.id]:e.target.value}))}
+                                  onKeyDown={e=>e.key==='Enter'&&inlineAddTask(proj.id,inlineAdd[proj.id]||'')}
+                                  onClick={e=>e.stopPropagation()}
+                                  placeholder="Add task…"
+                                  style={{flex:1,background:proj.color+'12',border:`1px solid ${proj.color}30`,borderRadius:8,padding:'5px 8px',fontSize:11,color:proj.color,fontFamily:'inherit',outline:'none'}}/>
+                                <button
+                                  onClick={()=>setView(`project-${proj.id}`)}
+                                  style={{
+                                    background: isSelected ? proj.color : 'transparent',
+                                    border: `1.5px solid ${proj.color}`,
+                                    borderRadius: 8,
+                                    padding: '5px 12px',
+                                    fontSize: 11,
+                                    fontWeight: 700,
+                                    color: isSelected ? 'white' : proj.color,
+                                    cursor: 'pointer',
+                                    whiteSpace: 'nowrap',
+                                    transition: 'all .15s',
+                                  }}>
+                                  {isSelected ? '✓ Open' : 'Open →'}
+                                </button>
                               </div>
                             </div>
                           );
