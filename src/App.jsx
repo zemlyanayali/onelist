@@ -1138,12 +1138,13 @@ export default function OneList(){
                               onDragOver={e=>{e.preventDefault();e.stopPropagation();if(dragProjId&&dragProjId!==proj.id){setDragProjOver(proj.id);}else{setDragTask(proj.id);}}}
                               onDragLeave={()=>{setDragTask(null);setDragProjOver(null);}}
                               onDrop={e=>{e.preventDefault();e.stopPropagation();const taskId=e.dataTransfer.getData('taskId');const fromProjId=e.dataTransfer.getData('projId');if(taskId){moveTask(taskId,proj.id);}else if(fromProjId&&fromProjId!==proj.id){reorderProjects(fromProjId,proj.id);}setDragTask(null);setDragProjId(null);setDragProjOver(null);}}
-                              style={{background:hl(proj.color),borderRadius:16,padding:18,border:`${isSelected?'2.5px':'1.5px'} solid ${isSelected?proj.color:isProjDrop?proj.color:isTaskDrop?proj.color:hm(proj.color)}`,position:'relative',transition:'all .2s',boxShadow:isSelected?`0 0 0 3px ${proj.color}33`:isProjDrop?`0 0 0 3px ${proj.color}66`:isTaskDrop?`0 0 0 2px ${proj.color}33`:'',display:'flex',flexDirection:'column',minHeight:160,opacity:dragProjId===proj.id?.5:1,cursor:'default'}}
+                              style={{background:hl(proj.color),borderRadius:16,padding:18,border:`${isSelected?'2.5px':'1.5px'} solid ${isSelected?proj.color:isProjDrop?proj.color:isTaskDrop?proj.color:hm(proj.color)}`,position:'relative',transition:'all .2s',boxShadow:isSelected?`0 0 0 3px ${proj.color}33`:isProjDrop?`0 0 0 3px ${proj.color}66`:isTaskDrop?`0 0 0 2px ${proj.color}33`:'',display:'flex',flexDirection:'column',minHeight:160,opacity:dragProjId===proj.id?.5:1,cursor:'pointer'}}
+                              onClick={()=>setView(`project-${proj.id}`)}
                               onMouseEnter={e=>{if(!dragTask&&!dragProjId&&!isSelected){e.currentTarget.style.transform='translateY(-2px)';e.currentTarget.style.boxShadow='0 8px 32px rgba(0,0,0,.09)';}}}
                               onMouseLeave={e=>{e.currentTarget.style.transform='';if(!dragTask&&!dragProjId&&!isSelected)e.currentTarget.style.boxShadow='';}}>
                               <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:6}}>
                                 <div style={{display:'flex',alignItems:'center',gap:8}}>
-                                  <span style={{fontSize:14,color:proj.color+'66',cursor:'grab',userSelect:'none',lineHeight:1}}>⠿</span>
+                                  <span onClick={e=>e.stopPropagation()} style={{fontSize:14,color:proj.color+'66',cursor:'grab',userSelect:'none',lineHeight:1}}>⠿</span>
                                   <span style={{fontSize:20}}>{proj.emoji}</span>
                                 </div>
                                 <div style={{display:'flex',alignItems:'center',gap:6}}>
@@ -1152,8 +1153,8 @@ export default function OneList(){
                                 </div>
                               </div>
                               <div style={{fontSize:15,fontWeight:800,color:proj.color,marginBottom:8,fontFamily:"'Lora',Georgia,serif"}}>{proj.name}</div>
-                              {/* Clickable task preview area — opens project */}
-                              <div onClick={()=>setView(`project-${proj.id}`)} style={{flex:1,cursor:'pointer'}}>
+                              {/* Clickable task preview — card itself handles the click */}
+                              <div style={{flex:1}}>
                                 {shown.length===0&&<div style={{fontSize:11,color:proj.color+'77',fontStyle:'italic',marginBottom:6}}>All done! 🎉</div>}
                                 {shown.map((t,i)=>(
                                   <div key={t.id} style={{fontSize:11,color:proj.color+'BB',padding:'2px 0',borderTop:i===0?`1px solid ${proj.color}20`:'none',display:'flex',alignItems:'center',gap:4}}>
@@ -1165,13 +1166,11 @@ export default function OneList(){
                                 ))}
                                 {active.length>4&&<div style={{fontSize:10,fontWeight:700,color:proj.color,marginTop:4}}>+{active.length-4} more</div>}
                               </div>
-                              {/* Footer: quick-add only, Open button removed (click card body to open) */}
-                              <div style={{display:'flex',gap:6,marginTop:10}}>
+                              <div onClick={e=>e.stopPropagation()} style={{display:'flex',gap:6,marginTop:10}}>
                                 <input
                                   value={inlineAdd[proj.id]||''}
                                   onChange={e=>setInlineAdd(p=>({...p,[proj.id]:e.target.value}))}
                                   onKeyDown={e=>e.key==='Enter'&&inlineAddTask(proj.id,inlineAdd[proj.id]||'')}
-                                  onClick={e=>e.stopPropagation()}
                                   placeholder="Add task…"
                                   style={{flex:1,background:proj.color+'12',border:`1px solid ${proj.color}30`,borderRadius:8,padding:'6px 10px',fontSize:11,color:proj.color,fontFamily:'inherit',outline:'none'}}/>
                               </div>
