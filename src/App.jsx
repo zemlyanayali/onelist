@@ -1165,6 +1165,7 @@ export default function OneList(){
                                 ))}
                                 {active.length>4&&<div style={{fontSize:10,fontWeight:700,color:proj.color,marginTop:4}}>+{active.length-4} more</div>}
                               </div>
+                              {/* Footer: quick-add only, Open button removed (click card body to open) */}
                               <div style={{display:'flex',gap:6,marginTop:10}}>
                                 <input
                                   value={inlineAdd[proj.id]||''}
@@ -1172,23 +1173,7 @@ export default function OneList(){
                                   onKeyDown={e=>e.key==='Enter'&&inlineAddTask(proj.id,inlineAdd[proj.id]||'')}
                                   onClick={e=>e.stopPropagation()}
                                   placeholder="Add task…"
-                                  style={{flex:1,background:proj.color+'12',border:`1px solid ${proj.color}30`,borderRadius:8,padding:'5px 8px',fontSize:11,color:proj.color,fontFamily:'inherit',outline:'none'}}/>
-                                <button
-                                  onClick={()=>setView(`project-${proj.id}`)}
-                                  style={{
-                                    background: isSelected ? proj.color : 'transparent',
-                                    border: `1.5px solid ${proj.color}`,
-                                    borderRadius: 8,
-                                    padding: '5px 12px',
-                                    fontSize: 11,
-                                    fontWeight: 700,
-                                    color: isSelected ? 'white' : proj.color,
-                                    cursor: 'pointer',
-                                    whiteSpace: 'nowrap',
-                                    transition: 'all .15s',
-                                  }}>
-                                  {isSelected ? '✓ Open' : 'Open →'}
-                                </button>
+                                  style={{flex:1,background:proj.color+'12',border:`1px solid ${proj.color}30`,borderRadius:8,padding:'6px 10px',fontSize:11,color:proj.color,fontFamily:'inherit',outline:'none'}}/>
                               </div>
                             </div>
                           );
