@@ -317,11 +317,6 @@ export default function OneList(){
   const [view,setView]=useState('dashboard');
   const [modal,setModal]=useState(null);
   const [sbOpen,setSbOpen]=useState(true);
-  const [sbWidth,setSbWidth]=useState(280);
-  const sbDragging=useRef(false);
-  const sbDragStart=useRef(0);
-  const sbWidthStart=useRef(280);
-  const SB_MIN=280; const SB_MAX=560;
   const [calMin,setCalMin]=useState(false);  // calendar open by default
   const [expProj,setExpProj]=useState({});
   const [expTask,setExpTask]=useState({});
@@ -498,19 +493,6 @@ export default function OneList(){
     const h=()=>setIsMobile(window.innerWidth<=768);
     window.addEventListener('resize',h);
     return()=>window.removeEventListener('resize',h);
-  },[]);
-
-  useEffect(()=>{
-    const onMove=e=>{
-      if(!sbDragging.current)return;
-      const dx=e.clientX-sbDragStart.current;
-      const newW=Math.min(SB_MAX,Math.max(SB_MIN,sbWidthStart.current+dx));
-      setSbWidth(newW);
-    };
-    const onUp=()=>{ sbDragging.current=false; document.body.style.cursor=''; document.body.style.userSelect=''; };
-    window.addEventListener('mousemove',onMove);
-    window.addEventListener('mouseup',onUp);
-    return()=>{ window.removeEventListener('mousemove',onMove); window.removeEventListener('mouseup',onUp); };
   },[]);
 
   // Close account panel on outside click
@@ -898,7 +880,6 @@ export default function OneList(){
         {/* Save status indicator */}
         {saveStatus==='saving'&&<span style={{fontSize:10,color:T.txt3,marginLeft:2}}>saving…</span>}
         {saveStatus==='error'&&<span title="Changes not saved — check your connection" style={{fontSize:11,fontWeight:700,color:'#FF3B30',background:'#FF3B3012',border:'1px solid #FF3B3030',borderRadius:100,padding:'2px 8px',cursor:'default'}}>⚠ Not saved</span>}
-        {saveStatus==='saved'&&session&&<span style={{fontSize:10,color:T.txt3,opacity:.5}}>✓</span>}
         <div style={{flex:1}}/>
         {!isMobile&&<button onClick={()=>setModal('search')} style={{display:'flex',alignItems:'center',gap:8,background:T.sur2,border:`1px solid ${T.brd}`,borderRadius:100,padding:'7px 14px',cursor:'pointer',fontSize:13,color:T.txt3}}>
           🔍 <span>Search</span> <span style={{fontSize:10,opacity:.6}}>⌘K</span>
