@@ -317,6 +317,11 @@ export default function OneList(){
   const [view,setView]=useState('dashboard');
   const [modal,setModal]=useState(null);
   const [sbOpen,setSbOpen]=useState(true);
+  const [sbWidth,setSbWidth]=useState(280);
+  const sbDragging=useRef(false);
+  const sbDragStart=useRef(0);
+  const sbWidthStart=useRef(280);
+  const SB_MIN=280; const SB_MAX=560;
   const [calMin,setCalMin]=useState(false);  // calendar open by default
   const [expProj,setExpProj]=useState({});
   const [expTask,setExpTask]=useState({});
@@ -493,6 +498,19 @@ export default function OneList(){
     const h=()=>setIsMobile(window.innerWidth<=768);
     window.addEventListener('resize',h);
     return()=>window.removeEventListener('resize',h);
+  },[]);
+
+  useEffect(()=>{
+    const onMove=e=>{
+      if(!sbDragging.current)return;
+      const dx=e.clientX-sbDragStart.current;
+      const newW=Math.min(SB_MAX,Math.max(SB_MIN,sbWidthStart.current+dx));
+      setSbWidth(newW);
+    };
+    const onUp=()=>{ sbDragging.current=false; document.body.style.cursor=''; document.body.style.userSelect=''; };
+    window.addEventListener('mousemove',onMove);
+    window.addEventListener('mouseup',onUp);
+    return()=>{ window.removeEventListener('mousemove',onMove); window.removeEventListener('mouseup',onUp); };
   },[]);
 
   // Close account panel on outside click
@@ -928,7 +946,21 @@ export default function OneList(){
         {/* SIDEBAR */}
         <div className="sb">
           {sbOpen ? (
-          <div style={{width:280,flexShrink:0,background:SBG,borderRight:`1px solid ${SBR}`,position:'sticky',top:57,height:'calc(100vh - 57px)',display:'flex',flexDirection:'column'}}>
+          <div style={{width:sbWidth,flexShrink:0,background:SBG,borderRight:`1px solid ${SBR}`,position:'sticky',top:57,height:'calc(100vh - 57px)',display:'flex',flexDirection:'column',transition:sbDragging.current?'none':'width .0s'}}>
+              {/* Drag-to-resize handle */}
+              <div
+                onMouseDown={e=>{
+                  sbDragging.current=true;
+                  sbDragStart.current=e.clientX;
+                  sbWidthStart.current=sbWidth;
+                  document.body.style.cursor='col-resize';
+                  document.body.style.userSelect='none';
+                  e.preventDefault();
+                }}
+                style={{position:'absolute',right:-3,top:0,bottom:0,width:6,cursor:'col-resize',zIndex:10,background:'transparent'}}
+                onMouseEnter={e=>e.currentTarget.style.background='#FF6B3530'}
+                onMouseLeave={e=>!sbDragging.current&&(e.currentTarget.style.background='transparent')}
+              />
               {/* Sidebar header */}
               <div style={{flexShrink:0,padding:'16px 14px 8px'}}>
                 <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:4}}>
@@ -1092,8 +1124,16 @@ export default function OneList(){
         {/* On mobile: project opens full screen */}
         <div style={{flex:1,display:'flex',minHeight:'calc(100vh - 57px)',overflow:'hidden'}}>
 
-          {/* Dashboard panel */}
-          <div style={{flex:currentProj&&!isMobile?'0 0 50%':'1',overflowY:'auto',minHeight:'calc(100vh - 57px)',transition:'flex .25s ease',borderRight:currentProj&&!isMobile?`1px solid ${T.brd}`:'none',display:isMobile&&currentProj?'none':'block'}}>
+          {/* Dashboard panel — fixed 50% when project open, full width otherwise */}
+          <div style={{
+            width: currentProj&&!isMobile ? '50%' : '100%',
+            flexShrink:0,
+            overflowY:'auto',
+            minHeight:'calc(100vh - 57px)',
+            transition:'width .25s ease',
+            borderRight: currentProj&&!isMobile ? `1px solid ${T.brd}` : 'none',
+            display: isMobile&&currentProj ? 'none' : 'block',
+          }}>
 
             {(view==='dashboard'||view.startsWith('project-'))&&(
               <div style={{padding:24}}>
@@ -1237,7 +1277,7 @@ export default function OneList(){
             const active=sortByPinTop(tasks.filter(t=>t.projectId===currentProj.id&&!t.done&&!t.archived&&!t.inToday));
             const done=tasks.filter(t=>t.projectId===currentProj.id&&t.done&&!t.archived&&!t.inToday);
             return (
-              <div style={{flex:'0 0 50%',overflowY:'auto',minHeight:'calc(100vh - 57px)',background:T.bg,animation:'slideIn .2s ease'}}>
+              <div style={{width:'50%',flexShrink:0,overflowY:'auto',minHeight:'calc(100vh - 57px)',background:T.bg,animation:'slideIn .2s ease'}}>
                 <div style={{padding:24}}>
                   {/* Project header */}
                   <div style={{background:hl(currentProj.color),borderRadius:16,padding:'16px 20px',marginBottom:20,display:'flex',alignItems:'center',gap:14,border:`1.5px solid ${hm(currentProj.color)}`}}>
