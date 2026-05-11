@@ -961,6 +961,10 @@ function OneList(){
         @keyframes confettiFall{0%{transform:translateY(-20px) rotate(0deg);opacity:1;}100%{transform:translateY(100vh) rotate(720deg);opacity:0;}}
         @keyframes popIn{0%{transform:scale(.5);opacity:0;}60%{transform:scale(1.15);}100%{transform:scale(1);opacity:1;}}
         @keyframes slideIn{0%{opacity:0;transform:translateX(20px);}100%{opacity:1;transform:translateX(0);}}
+        .task-title-wrap{position:relative;}
+        .task-title-wrap:hover .task-tooltip{display:block;}
+        .task-tooltip{display:none;position:absolute;left:0;top:calc(100% + 4px);background:#1A1714;color:white;font-size:12px;font-weight:500;padding:6px 10px;border-radius:8px;white-space:normal;word-break:break-word;max-width:240px;z-index:999;box-shadow:0 4px 16px rgba(0,0,0,.2);line-height:1.4;pointer-events:none;}
+        .task-tooltip::before{content:'';position:absolute;top:-4px;left:12px;width:8px;height:8px;background:#1A1714;transform:rotate(45deg);border-radius:1px;}
         @media(max-width:768px){.sb{display:none!important;}.vfab{display:flex!important;}}
         @media(min-width:769px){.vfab{display:none!important;}}
       `}</style>
@@ -1059,10 +1063,11 @@ function OneList(){
                         <div style={{display:'flex',alignItems:'center',gap:7}}>
                           {!t.done&&<span style={{fontSize:12,color:T.txt3,flexShrink:0,userSelect:'none'}}>⠿</span>}
                           <Chk done={t.done} color={proj?.color} onClick={()=>toggleDone(t.id)} size={20}/>
-                          <div style={{flex:1,minWidth:0,cursor:hasSubs?'pointer':'default'}} onClick={()=>hasSubs&&setExpToday(p=>({...p,[t.id]:!p[t.id]}))}>
+                          <div className="task-title-wrap" style={{flex:1,minWidth:0,cursor:hasSubs?'pointer':'default',position:'relative'}} onClick={()=>hasSubs&&setExpToday(p=>({...p,[t.id]:!p[t.id]}))}>
                             <div style={{fontSize:12,fontWeight:500,color:t.done?T.txt3:T.txt,textDecoration:t.done?'line-through':'none',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{t.title}</div>
                             {hasSubs&&<div style={{fontSize:10,color:T.txt3,marginTop:1}}>{t.subtasks.filter(s=>s.done).length}/{t.subtasks.length} subtasks {exp?'▲':'▼'}</div>}
                             {t.recur&&<div style={{fontSize:9,color:T.txt3}}>🔁 {t.recur}</div>}
+                            <div className="task-tooltip">{t.title}{t.notes?<><br/><span style={{opacity:.7,fontWeight:400}}>{t.notes}</span></>:null}</div>
                           </div>
                           <div style={{display:'flex',gap:2,flexShrink:0}}>
                             {t.pinned
