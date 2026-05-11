@@ -927,21 +927,7 @@ export default function OneList(){
         {/* SIDEBAR */}
         <div className="sb">
           {sbOpen ? (
-          <div style={{width:sbWidth,flexShrink:0,background:SBG,borderRight:`1px solid ${SBR}`,position:'sticky',top:57,height:'calc(100vh - 57px)',display:'flex',flexDirection:'column',transition:sbDragging.current?'none':'width .0s'}}>
-              {/* Drag-to-resize handle */}
-              <div
-                onMouseDown={e=>{
-                  sbDragging.current=true;
-                  sbDragStart.current=e.clientX;
-                  sbWidthStart.current=sbWidth;
-                  document.body.style.cursor='col-resize';
-                  document.body.style.userSelect='none';
-                  e.preventDefault();
-                }}
-                style={{position:'absolute',right:-3,top:0,bottom:0,width:6,cursor:'col-resize',zIndex:10,background:'transparent'}}
-                onMouseEnter={e=>e.currentTarget.style.background='#FF6B3530'}
-                onMouseLeave={e=>!sbDragging.current&&(e.currentTarget.style.background='transparent')}
-              />
+          <div style={{width:280,flexShrink:0,background:SBG,borderRight:`1px solid ${SBR}`,position:'sticky',top:57,height:'calc(100vh - 57px)',display:'flex',flexDirection:'column'}}>
               {/* Sidebar header */}
               <div style={{flexShrink:0,padding:'16px 14px 8px'}}>
                 <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:4}}>
@@ -1101,20 +1087,11 @@ export default function OneList(){
           )}
         </div>
 
-        {/* MAIN — split panel: dashboard left, project slides in on right */}
-        {/* On mobile: project opens full screen */}
+        {/* MAIN — split panel: dashboard always left, project slides in on right */}
         <div style={{flex:1,display:'flex',minHeight:'calc(100vh - 57px)',overflow:'hidden'}}>
 
-          {/* Dashboard panel — fixed 50% when project open, full width otherwise */}
-          <div style={{
-            width: currentProj&&!isMobile ? '50%' : '100%',
-            flexShrink:0,
-            overflowY:'auto',
-            minHeight:'calc(100vh - 57px)',
-            transition:'width .25s ease',
-            borderRight: currentProj&&!isMobile ? `1px solid ${T.brd}` : 'none',
-            display: isMobile&&currentProj ? 'none' : 'block',
-          }}>
+          {/* Left: Dashboard (always visible) */}
+          <div style={{flex:currentProj&&!isMobile?'0 0 50%':'1',overflowY:'auto',minHeight:'calc(100vh - 57px)',transition:'flex .25s ease',borderRight:currentProj&&!isMobile?`1px solid ${T.brd}`:'none',display:isMobile&&currentProj?'none':'block'}}>
 
             {(view==='dashboard'||view.startsWith('project-'))&&(
               <div style={{padding:24}}>
@@ -1258,7 +1235,7 @@ export default function OneList(){
             const active=sortByPinTop(tasks.filter(t=>t.projectId===currentProj.id&&!t.done&&!t.archived&&!t.inToday));
             const done=tasks.filter(t=>t.projectId===currentProj.id&&t.done&&!t.archived&&!t.inToday);
             return (
-              <div style={{width:'50%',flexShrink:0,overflowY:'auto',minHeight:'calc(100vh - 57px)',background:T.bg,animation:'slideIn .2s ease'}}>
+              <div style={{flex:'0 0 50%',overflowY:'auto',minHeight:'calc(100vh - 57px)',background:T.bg,animation:'slideIn .2s ease'}}>
                 <div style={{padding:24}}>
                   {/* Project header */}
                   <div style={{background:hl(currentProj.color),borderRadius:16,padding:'16px 20px',marginBottom:20,display:'flex',alignItems:'center',gap:14,border:`1.5px solid ${hm(currentProj.color)}`}}>
