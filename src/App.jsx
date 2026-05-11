@@ -1,4 +1,27 @@
 import { useState, useEffect, useRef, useCallback } from "react";
+import { Component } from "react";
+
+// ── Error boundary — catches blank screen crashes ─────────────────────────────
+class ErrorBoundary extends Component {
+  constructor(p){super(p);this.state={err:null};}
+  static getDerivedStateFromError(e){return{err:e};}
+  render(){
+    if(this.state.err) return(
+      <div style={{padding:40,fontFamily:'system-ui',maxWidth:600,margin:'40px auto'}}>
+        <h2 style={{color:'#FF3B30',marginBottom:12}}>Something went wrong</h2>
+        <pre style={{background:'#f5f5f5',padding:16,borderRadius:8,fontSize:12,overflow:'auto',whiteSpace:'pre-wrap'}}>
+          {this.state.err.message}{'\n\n'}{this.state.err.stack}
+        </pre>
+        <button onClick={()=>window.location.reload()} style={{marginTop:16,background:'#FF6B35',color:'white',border:'none',borderRadius:8,padding:'10px 20px',cursor:'pointer',fontSize:14}}>
+          Reload App
+        </button>
+      </div>
+    );
+    return this.props.children;
+  }
+}
+
+export default function App(){return <ErrorBoundary><OneList/></ErrorBoundary>;}
 
 // ─── Supabase ─────────────────────────────────────────────────────────────────
 const SB_URL = 'https://fkffanvwmkswjukjjenp.supabase.co';
@@ -96,7 +119,7 @@ const DEFAULTS = {
   lastReset:new Date().toDateString(),
   todayOrder:['t1','t3','t4'],
   dashboardLayout:['projects','alltasks'],
-  settings:{resetHour:3,resetMinute:0,displayName:'',todaySide:'left',dueDatesEnabled:true},
+  settings:{resetHour:3,resetMinute:0,displayName:'',todaySide:'left',dueDatesEnabled:true,notificationsEnabled:false,reminderHour:8,reminderMinute:0},
 };
 const BLANK = {title:'',projectId:'',notes:'',subtasks:[],inToday:false,pinned:false,pinTop:false,recur:'',customRecur:'',dueDate:''};
 
@@ -303,7 +326,7 @@ function TaskCard({task,T,dm,getProj,projects,expTask,setExpTask,toggleDone,togg
 }
 
 
-export default function OneList(){
+function OneList(){
   const TODAY=new Date();
   const [data,setData]=useState(null);
   const [session,setSession]=useState(null);
@@ -671,6 +694,76 @@ export default function OneList(){
     const token=localStorage.getItem('gcal_token');
     if(token&&gcalConnected)fetchGCalEvents(token);
   },[gcalConnected]);
+
+  // ── Notification engine ───────────────────────────────────────────────────
+  const [notifPerm,setNotifPerm]=useState(typeof Notification!=='undefined'?Notification.permission:'denied');
+
+  useEffect(()=>{
+    if('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(()=>{});
+  },[]);
+
+  const showNotif=(title,body,tag='onelist')=>{
+    if(typeof Notification==='undefined'||Notification.permission!=='granted') return;
+    if('serviceWorker' in navigator){
+      navigator.serviceWorker.ready.then(sw=>sw.showNotification(title,{body,icon:'/icon-192.png',badge:'/icon-72.png',tag,vibrate:[200,100,200]}));
+    } else {
+      new Notification(title,{body,icon:'/icon-192.png'});
+    }
+  };
+
+  const requestNotifPermission=async()=>{
+    if(typeof Notification==='undefined') return;
+    const perm=await Notification.requestPermission();
+    setNotifPerm(perm);
+    if(perm==='granted'){
+      upd(prev=>({...prev,settings:{...(prev.settings||{}),notificationsEnabled:true}}));
+      setTimeout(()=>showNotif('OneList notifications on 🎉',"You'll get daily reminders and reset alerts."),500);
+    }
+  };
+
+  const disableNotifs=()=>{
+    upd(prev=>({...prev,settings:{...(prev.settings||{}),notificationsEnabled:false}}));
+  };
+
+  // Check every minute for scheduled notifications
+  useEffect(()=>{
+    if(!data?.settings?.notificationsEnabled||notifPerm!=='granted') return;
+    const tick=()=>{
+      const now=new Date();
+      const h=now.getHours(),m=now.getMinutes();
+      const rH=data.settings?.reminderHour??8, rM=data.settings?.reminderMinute??0;
+      const resetH=data.settings?.resetHour??3, resetM=data.settings?.resetMinute??0;
+      // Daily reminder
+      if(h===rH&&m===rM){
+        const active=(data.tasks||[]).filter(t=>t.inToday&&!t.done&&!t.archived).length;
+        showNotif(active===0?'Time to plan your day 📋':`${active} task${active===1?'':'s'} for today ☀️`,active===0?'Open OneList and set up today\'s tasks.':`${active} task${active===1?'':'s'} in your Today list.`,'daily-reminder');
+      }
+      // Reset warning 30 min before
+      let wH=resetH, wM=resetM-30;
+      if(wM<0){wM+=60;wH=(wH-1+24)%24;}
+      if(h===wH&&m===wM){
+        const undone=(data.tasks||[]).filter(t=>t.inToday&&!t.done&&!t.archived).length;
+        if(undone>0) showNotif('Tasks reset in 30 min ⏰',`${undone} task${undone===1?'':'s'} still open. They'll return to projects at reset.`,'reset-warning');
+      }
+    };
+    // Fire once now, then every 60s aligned to the minute
+    const now=new Date();
+    const msToNextMin=60000-now.getSeconds()*1000-now.getMilliseconds();
+    const t1=setTimeout(()=>{tick();const iv=setInterval(tick,60000);return()=>clearInterval(iv);},msToNextMin);
+    return()=>clearTimeout(t1);
+  },[data?.settings?.notificationsEnabled,data?.settings?.reminderHour,data?.settings?.reminderMinute,data?.settings?.resetHour,data?.settings?.resetMinute,notifPerm]);
+
+  // All done notification
+  const prevDoneRef=useRef(null);
+  useEffect(()=>{
+    if(!data?.settings?.notificationsEnabled||notifPerm!=='granted') return;
+    const active=(data?.tasks||[]).filter(t=>t.inToday&&!t.done&&!t.archived).length;
+    const total=(data?.tasks||[]).filter(t=>t.inToday&&!t.archived).length;
+    if(prevDoneRef.current!==null&&prevDoneRef.current>0&&active===0&&total>0){
+      showNotif('All done! 🏆 You legend!','Every task on your Today list is complete.','all-done');
+    }
+    prevDoneRef.current=active;
+  },[data]);
 
   const saveProj=()=>{
     if(!projForm.name.trim())return;
@@ -1377,6 +1470,47 @@ export default function OneList(){
                 </div>
                 <span style={{fontSize:13,color:T.txt}}>{dm?'Dark':'Light'} mode</span>
               </div>
+            </div>
+
+            {/* Notifications */}
+            <div style={{marginBottom:24,padding:16,background:T.sur2,borderRadius:12}}>
+              <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:8}}>
+                <div>
+                  <div style={{fontSize:13,fontWeight:600,color:T.txt,marginBottom:2}}>Notifications</div>
+                  <div style={{fontSize:11,color:T.txt3}}>
+                    {notifPerm==='denied'?'Blocked by browser — check site settings':
+                     notifPerm==='granted'&&data?.settings?.notificationsEnabled?'Active — receiving reminders':
+                     'Get daily reminders and reset alerts'}
+                  </div>
+                </div>
+                {notifPerm==='granted'&&(
+                  <div onClick={()=>data?.settings?.notificationsEnabled?disableNotifs():upd(prev=>({...prev,settings:{...(prev.settings||{}),notificationsEnabled:true}}))}
+                    style={{width:44,height:24,borderRadius:12,cursor:'pointer',background:data?.settings?.notificationsEnabled?'#FF6B35':T.brd,position:'relative',transition:'background .2s',flexShrink:0}}>
+                    <div style={{position:'absolute',top:2,left:data?.settings?.notificationsEnabled?22:2,width:20,height:20,borderRadius:'50%',background:'white',transition:'left .2s',boxShadow:'0 1px 4px rgba(0,0,0,.2)'}}/>
+                  </div>
+                )}
+              </div>
+              {notifPerm!=='granted'&&notifPerm!=='denied'&&(
+                <button onClick={requestNotifPermission} style={{background:'#FF6B35',border:'none',borderRadius:8,padding:'8px 16px',fontSize:12,fontWeight:700,color:'white',cursor:'pointer'}}>
+                  🔔 Enable notifications
+                </button>
+              )}
+              {notifPerm==='denied'&&(
+                <div style={{fontSize:11,color:'#FF3B30',marginTop:4}}>Open browser settings → Site permissions → Allow notifications for this site.</div>
+              )}
+              {notifPerm==='granted'&&data?.settings?.notificationsEnabled&&(
+                <div style={{marginTop:12,borderTop:`1px solid ${T.brd}`,paddingTop:12}}>
+                  <div style={{fontSize:12,fontWeight:600,color:T.txt,marginBottom:8}}>Daily reminder time</div>
+                  <div style={{display:'flex',gap:10,alignItems:'center'}}>
+                    <input type="time"
+                      value={`${String(data?.settings?.reminderHour??8).padStart(2,'0')}:${String(data?.settings?.reminderMinute??0).padStart(2,'0')}`}
+                      onChange={e=>{const [h,m]=e.target.value.split(':').map(Number);upd(prev=>({...prev,settings:{...(prev.settings||{}),reminderHour:h,reminderMinute:m}}));}}
+                      style={{background:T.sur,border:`1.5px solid ${T.brd}`,borderRadius:10,padding:'8px 12px',fontSize:14,fontWeight:600,color:T.txt,fontFamily:'inherit',outline:'none',cursor:'pointer'}}/>
+                    <span style={{fontSize:11,color:T.txt3}}>every morning</span>
+                  </div>
+                  <div style={{fontSize:11,color:T.txt3,marginTop:8}}>You'll also get a 30 min warning before your daily reset.</div>
+                </div>
+              )}
             </div>
 
             {/* Google Calendar integration */}
