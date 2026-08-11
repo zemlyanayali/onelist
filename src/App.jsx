@@ -1646,7 +1646,7 @@ function OneList(){
       {/* ── Settings modal ── */}
       {showSettings&&(
         <div onClick={()=>setShowSettings(false)} style={{position:'fixed',inset:0,background:'rgba(0,0,0,.5)',zIndex:500,display:'flex',alignItems:'center',justifyContent:'center',padding:20,backdropFilter:'blur(8px)'}}>
-          <div onClick={e=>e.stopPropagation()} style={{background:T.sur,borderRadius:20,padding:28,width:'100%',maxWidth:380,boxShadow:'0 20px 60px rgba(0,0,0,.25)'}}>
+          <div onClick={e=>e.stopPropagation()} style={{background:T.sur,borderRadius:20,padding:28,width:'100%',maxWidth:380,maxHeight:'88vh',overflowY:'auto',boxShadow:'0 20px 60px rgba(0,0,0,.25)'}}>
             <div style={{fontFamily:"'Lora',Georgia,serif",fontSize:20,fontWeight:700,marginBottom:6,color:T.txt}}>Settings</div>
             <div style={{fontSize:12,color:T.txt3,marginBottom:24}}>{session?.email}</div>
 
