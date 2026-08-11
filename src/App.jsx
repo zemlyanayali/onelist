@@ -586,7 +586,7 @@ function OneList(){
     if(!taskForm.title.trim())return;
     const base={title:taskForm.title.trim(),projectId:taskForm.projectId||null,notes:taskForm.notes,subtasks:taskForm.subtasks,done:false,inToday:taskForm.inToday,pinned:taskForm.pinned,archived:false,completedAt:null,recur:taskForm.recur==='custom'?(taskForm.customRecur||'custom'):taskForm.recur,dueDate:taskForm.dueDate||''};
     if(editTid){upd(prev=>({...prev,tasks:prev.tasks.map(t=>t.id===editTid?{...t,...base}:t)}));}
-    else{upd(prev=>({...prev,tasks:[...prev.tasks,{id:genId(),...base,createdAt:Date.now()}]}));}
+    else{upd(prev=>({...prev,tasks:[...prev.tasks,{id:genId(),...base,createdAt:Date.now()}]})); createGCalEvent(base);}
     setTaskForm(BLANK);setSubIn('');setEditTid(null);setModal(null);
   };
 
@@ -643,15 +643,24 @@ function OneList(){
 
   // Google Calendar OAuth + event fetching
   const GCAL_CLIENT_ID = '25310747435-5tt1t3vil9nfav4tmhrvpugpuqaenc2t.apps.googleusercontent.com';
-  const GCAL_SCOPES = 'https://www.googleapis.com/auth/calendar.readonly';
+  const GCAL_SCOPES = 'https://www.googleapis.com/auth/calendar.events';
 
   const connectGCal=()=>{
-    if(!GCAL_CLIENT_ID){alert('Add your Google Calendar Client ID in Settings first.');return;}
+    const clientId=data?.settings?.gcalClientId||GCAL_CLIENT_ID;
+    if(!clientId){alert('Add your Google Calendar Client ID in Settings first.');return;}
+    // Electron: Google blocks OAuth consent screens loaded inside embedded webviews
+    // (`disallowed_useragent`), so the desktop app opens this in the system browser
+    // instead (main.js's setWindowOpenHandler externalizes non-app URLs), and Google
+    // redirects to a custom onelist:// URL that main.js catches and forwards back in.
+    const isElectron=/Electron/i.test(navigator.userAgent);
     const params=new URLSearchParams({
-      client_id:GCAL_CLIENT_ID, redirect_uri:window.location.origin,
-      response_type:'token', scope:GCAL_SCOPES, include_granted_scopes:'true',
+      client_id:clientId,
+      redirect_uri: isElectron?'onelist://oauth-callback':window.location.origin,
+      response_type:'token', scope:GCAL_SCOPES, include_granted_scopes:'true', state:'gcal',
     });
-    window.location.href=`https://accounts.google.com/o/oauth2/v2/auth?${params}`;
+    const authUrl=`https://accounts.google.com/o/oauth2/v2/auth?${params}`;
+    if(isElectron) window.open(authUrl,'_blank');
+    else window.location.href=authUrl;
   };
 
   const disconnectGCal=()=>{
@@ -676,16 +685,30 @@ function OneList(){
     }catch{disconnectGCal();}
   };
 
-  // Handle OAuth redirect (token in URL hash)
+  // Create an all-day GCal event for a task's due date (fire-and-forget, mirrors
+  // fetchGCalEvents' error handling — calendar sync failures don't block task saves).
+  const createGCalEvent=async(task)=>{
+    if(!task.dueDate||!gcalConnected)return;
+    const token=localStorage.getItem('gcal_token');
+    if(!token)return;
+    try{
+      await fetch('https://www.googleapis.com/calendar/v3/calendars/primary/events',{
+        method:'POST',
+        headers:{Authorization:`Bearer ${token}`,'Content-Type':'application/json'},
+        body:JSON.stringify({summary:task.title,start:{date:task.dueDate},end:{date:task.dueDate}}),
+      });
+    }catch{}
+  };
+
+  // Handle OAuth redirect (token in URL hash) — state=gcal distinguishes this from
+  // Supabase's own access_token hash (both use the same param name).
   useEffect(()=>{
     const hash=window.location.hash;
-    if(hash&&hash.includes('access_token')&&!hash.includes('type=')) {
+    if(hash&&hash.includes('access_token=')&&hash.includes('state=gcal')){
       const params=new URLSearchParams(hash.slice(1));
-      const at=params.get('access_token');
-      if(at&&!params.get('refresh_token')){
-        // This is a GCal token (not Supabase which has refresh_token)
-        // Actually Supabase token also has access_token, distinguish by checking for 'provider_token'
-      }
+      const token=params.get('access_token');
+      if(token){ localStorage.setItem('gcal_token',token); setGcalConnected(true); }
+      window.history.replaceState(null,'',window.location.pathname);
     }
   },[]);
 
@@ -795,23 +818,24 @@ function OneList(){
     setVLoad(true);
     const names=(data?.projects||[]).map(p=>p.name);
     try{
-      const r=await fetch('https://api.anthropic.com/v1/messages',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({model:'claude-sonnet-4-20250514',max_tokens:400,messages:[{role:'user',content:`Extract task from: "${transcript}". Projects: ${names.join(', ')}. JSON only: {"title":"...","projectName":"or null","subtasks":["..."],"inToday":true}`}]})});
-      const d=await r.json();
-      const txt=d.content?.find(b=>b.type==='text')?.text||'{}';
-      const p=JSON.parse(txt.replace(/```json|```/g,'').trim());
+      const r=await fetch('/api/parse-task',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({transcript,projectNames:names})});
+      if(!r.ok)throw new Error(`${r.status}`);
+      const p=await r.json();
       const proj=(data?.projects||[]).find(pr=>pr.name.toLowerCase()===(p.projectName||'').toLowerCase());
-      setParsed({title:p.title||transcript,projectId:proj?.id||'',subtasks:(p.subtasks||[]).map(s=>({id:genId(),title:s,done:false})),inToday:!!p.inToday});
+      setParsed({title:p.title||transcript,projectId:proj?.id||'',subtasks:(p.subtasks||[]).map(s=>({id:genId(),title:s,done:false})),inToday:!!p.inToday,dueDate:p.dueDate||''});
     }catch{
       let pid='';
       for(const p of(data?.projects||[]))if(transcript.toLowerCase().includes(p.name.toLowerCase())){pid=p.id;break;}
-      setParsed({title:transcript,projectId:pid,subtasks:[],inToday:transcript.toLowerCase().includes('today')});
+      setParsed({title:transcript,projectId:pid,subtasks:[],inToday:transcript.toLowerCase().includes('today'),dueDate:''});
     }
     setVLoad(false);
   };
 
   const confirmVoice=()=>{
     if(!parsed?.title?.trim())return;
-    upd(prev=>({...prev,tasks:[...prev.tasks,{id:genId(),title:parsed.title.trim(),projectId:parsed.projectId||null,subtasks:parsed.subtasks||[],notes:'',done:false,inToday:parsed.inToday,pinned:false,archived:false,completedAt:null,createdAt:Date.now(),recur:''}]}));
+    const newTask={id:genId(),title:parsed.title.trim(),projectId:parsed.projectId||null,subtasks:parsed.subtasks||[],notes:'',done:false,inToday:parsed.inToday,pinned:false,archived:false,completedAt:null,createdAt:Date.now(),recur:'',dueDate:parsed.dueDate||''};
+    upd(prev=>({...prev,tasks:[...prev.tasks,newTask]}));
+    createGCalEvent(newTask);
     setTranscript('');setParsed(null);setModal(null);
   };
 
@@ -877,7 +901,23 @@ function OneList(){
     setSession(null); setData(null); dbRowId.current=null;
   };
 
-  if(loading || (session && !data)) return <div style={{display:'flex',alignItems:'center',justifyContent:'center',minHeight:'100vh',fontSize:14,color:'#999',fontFamily:'system-ui'}}>Loading OneList…</div>;
+  const isWidget=window.location.hash.startsWith('#widget');
+  const T=dm
+    ?{bg:'#0F0F0F',sur:'#1A1A1A',sur2:'#242424',brd:'#2E2E2E',txt:'#F0F0F0',txt2:'#A0A0A0',txt3:'#555'}
+    :{bg:'#F7F6F3',sur:'#FFFFFF',sur2:'#F2F0EC',brd:'#E8E5E0',txt:'#1A1A18',txt2:'#6A6860',txt3:'#ABA9A3'};
+
+  if(loading || (session && !data)) {
+    if(isWidget) return <div style={{display:'flex',alignItems:'center',justifyContent:'center',minHeight:'100vh',fontSize:12,color:T.txt3,fontFamily:'system-ui',background:T.bg}}>Loading…</div>;
+    return <div style={{display:'flex',alignItems:'center',justifyContent:'center',minHeight:'100vh',fontSize:14,color:'#999',fontFamily:'system-ui'}}>Loading OneList…</div>;
+  }
+
+  // ── Widget: compact voice-capture + Today view (Electron popup / #widget) ──
+  if(isWidget && !session) return (
+    <div style={{minHeight:'100vh',background:T.bg,display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',gap:10,padding:20,textAlign:'center',fontFamily:"'DM Sans',system-ui,sans-serif"}}>
+      <span style={{fontSize:13,color:T.txt2}}>Sign in to OneList to use the widget.</span>
+      <a href={window.location.origin} style={{fontSize:12,color:'#FF6B35',fontWeight:600}}>Open OneList →</a>
+    </div>
+  );
 
   // ── Login / Signup screen ────────────────────────────────────────────────
   if (!session) return (
@@ -933,9 +973,60 @@ function OneList(){
   );
 
   const {projects,tasks,archived}=data;
-  const T=dm
-    ?{bg:'#0F0F0F',sur:'#1A1A1A',sur2:'#242424',brd:'#2E2E2E',txt:'#F0F0F0',txt2:'#A0A0A0',txt3:'#555'}
-    :{bg:'#F7F6F3',sur:'#FFFFFF',sur2:'#F2F0EC',brd:'#E8E5E0',txt:'#1A1A18',txt2:'#6A6860',txt3:'#ABA9A3'};
+
+  if(isWidget) return (
+    <div style={{minHeight:'100vh',background:T.bg,fontFamily:"'DM Sans',system-ui,sans-serif",display:'flex',flexDirection:'column',padding:14}}>
+      <style>{`@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&display=swap');*,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}::-webkit-scrollbar{width:4px;}::-webkit-scrollbar-thumb{background:#ddd;border-radius:2px;}@keyframes pulse{0%{box-shadow:0 0 0 0 rgba(255,107,53,.4);}100%{box-shadow:0 0 0 14px rgba(255,107,53,0);}}`}</style>
+
+      {/* Header */}
+      <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:12}}>
+        <span style={{fontSize:14,fontWeight:700,color:T.txt}}>Today</span>
+        {todayActive>0&&<span style={{background:'#FF6B35',color:'white',borderRadius:100,fontSize:10,fontWeight:700,padding:'1px 6px'}}>{todayActive}</span>}
+      </div>
+
+      {/* Voice capture — always visible, no modal */}
+      <div style={{background:T.sur,border:`1px solid ${T.brd}`,borderRadius:12,padding:12,marginBottom:12,flexShrink:0}}>
+        <div style={{display:'flex',alignItems:'center',gap:8}}>
+          <button onClick={listening?stopVoice:startVoice} style={{width:38,height:38,borderRadius:'50%',background:listening?'#FF3B30':'#FF6B35',border:'none',cursor:'pointer',fontSize:16,animation:listening?'pulse 1.5s infinite':'none',display:'flex',alignItems:'center',justifyContent:'center',color:'white',flexShrink:0}}>🎙️</button>
+          <div style={{flex:1,minWidth:0}}>
+            {transcript
+              ? <input value={transcript} onChange={e=>setTranscript(e.target.value)} style={{width:'100%',background:'none',border:'none',fontSize:13,color:T.txt,fontFamily:'inherit',outline:'none'}}/>
+              : <span style={{fontSize:12,color:T.txt3}}>{listening?'Listening…':'Tap mic and speak a task'}</span>}
+          </div>
+        </div>
+        {transcript&&!parsed&&(
+          <button onClick={parseAI} disabled={vLoad} style={{marginTop:8,width:'100%',background:T.sur2,border:`1px solid ${T.brd}`,borderRadius:8,padding:'7px 0',fontSize:12,fontWeight:600,color:T.txt,cursor:'pointer'}}>{vLoad?'Analysing…':'🤖 Parse with AI →'}</button>
+        )}
+        {parsed&&(
+          <div style={{marginTop:8,background:T.sur2,border:'1.5px solid #FF6B3540',borderRadius:10,padding:10}}>
+            <input value={parsed.title} onChange={e=>setParsed(p=>({...p,title:e.target.value}))} style={{width:'100%',background:'none',border:'none',borderBottom:'1.5px solid #FF6B35',fontSize:13,fontWeight:600,color:T.txt,fontFamily:'inherit',outline:'none',padding:'2px 0',marginBottom:8}}/>
+            {parsed.subtasks?.length>0&&<div style={{fontSize:11,color:T.txt2,marginBottom:8}}>{parsed.subtasks.map(s=>`• ${s.title}`).join('  ')}</div>}
+            <div style={{display:'flex',gap:8}}>
+              <button onClick={()=>{setParsed(null);setTranscript('');}} style={{flex:1,background:T.sur,border:`1px solid ${T.brd}`,borderRadius:8,padding:'6px 0',fontSize:12,fontWeight:600,color:T.txt,cursor:'pointer'}}>Cancel</button>
+              <button onClick={confirmVoice} style={{flex:1,background:'#FF6B35',border:'none',borderRadius:8,padding:'6px 0',fontSize:12,fontWeight:700,color:'white',cursor:'pointer'}}>Save</button>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Today list */}
+      <div style={{flex:1,overflowY:'auto',minHeight:0}}>
+        {todayTasks.length===0
+          ? <div style={{textAlign:'center',padding:'20px 6px',color:T.txt3,fontSize:12}}>Nothing for today.</div>
+          : todayTasks.map(t=>{
+            const proj=t.projectId?getProj(t.projectId):null;
+            return (
+              <div key={t.id} style={{display:'flex',alignItems:'center',gap:8,background:T.sur,border:`1px solid ${T.brd}`,borderRadius:8,padding:'7px 10px',marginBottom:6,borderLeft:proj?`3px solid ${proj.color}`:`1px solid ${T.brd}`,opacity:t.done?.6:1}}>
+                <Chk done={t.done} color={proj?.color} onClick={()=>toggleDone(t.id)} size={18}/>
+                <span style={{flex:1,fontSize:12,fontWeight:500,color:t.done?T.txt3:T.txt,textDecoration:t.done?'line-through':'none',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{t.title}</span>
+              </div>
+            );
+          })
+        }
+      </div>
+    </div>
+  );
+
   const SBG=dm?'#0C0C08':'#FFFEF5';
   const SBR=dm?'#2A2A14':'#EDE8C0';
   const inp={width:'100%',background:T.sur2,border:`1.5px solid ${T.brd}`,borderRadius:10,padding:'10px 14px',fontSize:14,color:T.txt,fontFamily:'inherit',outline:'none'};
@@ -1523,12 +1614,16 @@ function OneList(){
               <div style={{fontSize:13,fontWeight:600,color:T.txt,marginBottom:4}}>Google Calendar</div>
               {gcalConnected?(
                 <div>
-                  <div style={{fontSize:12,color:'#34C759',marginBottom:10}}>✓ Connected — showing next 7 days of events</div>
-                  <button onClick={disconnectGCal} style={{background:'#FF3B3012',border:'1px solid #FF3B3040',borderRadius:8,padding:'7px 14px',fontSize:12,fontWeight:600,color:'#FF3B30',cursor:'pointer'}}>Disconnect</button>
+                  <div style={{fontSize:12,color:'#34C759',marginBottom:6}}>✓ Connected — showing next 7 days of events</div>
+                  <p style={{fontSize:11,color:T.txt3,marginBottom:10,lineHeight:1.5}}>Tasks with a due date auto-sync to your calendar. If you connected before this feature shipped, reconnect once to grant write access.</p>
+                  <div style={{display:'flex',gap:8}}>
+                    <button onClick={connectGCal} style={{background:'#4285F412',border:'1px solid #4285F440',borderRadius:8,padding:'7px 14px',fontSize:12,fontWeight:600,color:'#4285F4',cursor:'pointer'}}>Reconnect</button>
+                    <button onClick={disconnectGCal} style={{background:'#FF3B3012',border:'1px solid #FF3B3040',borderRadius:8,padding:'7px 14px',fontSize:12,fontWeight:600,color:'#FF3B30',cursor:'pointer'}}>Disconnect</button>
+                  </div>
                 </div>
               ):(
                 <div>
-                  <p style={{fontSize:11,color:T.txt3,marginBottom:10,lineHeight:1.5}}>Connect your Google Calendar to see upcoming events in the sidebar. Requires a Google Cloud Client ID.</p>
+                  <p style={{fontSize:11,color:T.txt3,marginBottom:10,lineHeight:1.5}}>Connect your Google Calendar to see upcoming events in the sidebar, and auto-create events for tasks with a due date. Requires a Google Cloud Client ID.</p>
                   <div style={{marginBottom:8}}>
                     <label style={{fontSize:11,fontWeight:700,color:T.txt2,display:'block',marginBottom:4}}>Google Client ID</label>
                     <input value={data?.settings?.gcalClientId||''} onChange={e=>upd(prev=>({...prev,settings:{...(prev.settings||{}),gcalClientId:e.target.value}}))} placeholder="xxxx.apps.googleusercontent.com" style={{...inp,fontSize:12,padding:'8px 12px'}}/>
