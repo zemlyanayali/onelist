@@ -10,7 +10,7 @@ export default async function handler(req, res) {
     return;
   }
 
-  const apiKey = process.env.ANTHROPIC_API_KEY;
+  const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) {
     res.status(500).json({ error: 'Server not configured' });
     return;
@@ -22,33 +22,35 @@ export default async function handler(req, res) {
 Known projects: ${names.join(', ') || '(none)'}
 Today's date: ${today}
 
-Return JSON only, no markdown fences, matching exactly this shape:
+Return JSON matching exactly this shape:
 {"title":"...","projectName":"matching known project name or null","subtasks":["only if the task genuinely needs breaking into multiple steps, otherwise leave empty"],"inToday":true or false,"dueDate":"YYYY-MM-DD or null if no date was mentioned"}`;
 
   try {
-    const r = await fetch('https://api.anthropic.com/v1/messages', {
+    const r = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'x-api-key': apiKey,
-        'anthropic-version': '2023-06-01',
+        'Authorization': `Bearer ${apiKey}`,
       },
       body: JSON.stringify({
-        model: 'claude-sonnet-5',
-        max_tokens: 400,
-        messages: [{ role: 'user', content: prompt }],
+        model: 'gpt-4o-mini',
+        response_format: { type: 'json_object' },
+        messages: [
+          { role: 'system', content: 'You extract structured tasks from voice transcripts. Respond with JSON only.' },
+          { role: 'user', content: prompt },
+        ],
       }),
     });
 
     if (!r.ok) {
       const detail = await r.text();
-      res.status(502).json({ error: `Anthropic API error ${r.status}`, detail });
+      res.status(502).json({ error: `OpenAI API error ${r.status}`, detail });
       return;
     }
 
     const d = await r.json();
-    const txt = d.content?.find(b => b.type === 'text')?.text || '{}';
-    const parsed = JSON.parse(txt.replace(/```json|```/g, '').trim());
+    const txt = d.choices?.[0]?.message?.content || '{}';
+    const parsed = JSON.parse(txt);
 
     res.status(200).json({
       title: parsed.title || transcript,
