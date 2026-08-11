@@ -654,12 +654,21 @@ function OneList(){
     if(!clientId){alert('Add your Google Calendar Client ID in Settings first.');return;}
     // Electron: Google blocks OAuth consent screens loaded inside embedded webviews
     // (`disallowed_useragent`), so the desktop app opens this in the system browser
-    // instead (main.js's setWindowOpenHandler externalizes non-app URLs), and Google
-    // redirects to a custom onelist:// URL that main.js catches and forwards back in.
+    // instead (main.js's setWindowOpenHandler externalizes non-app URLs). Google's
+    // console also rejects a custom onelist:// scheme as a registered redirect
+    // URI, so Electron uses the Authorization Code flow through our own
+    // api/gcal-oauth-callback.js (a real https URL) — that server-side endpoint
+    // does the onelist:// hop as its own follow-up redirect, which Electron's
+    // protocol handler catches. The web (browser tab) path is untouched: still
+    // the direct implicit flow straight against Google, no server round-trip.
     const isElectron=/Electron/i.test(navigator.userAgent);
-    const params=new URLSearchParams({
+    const params=new URLSearchParams(isElectron?{
       client_id:clientId,
-      redirect_uri: isElectron?'onelist://oauth-callback':window.location.origin,
+      redirect_uri:`${window.location.origin}/api/gcal-oauth-callback`,
+      response_type:'code', scope:GCAL_SCOPES, include_granted_scopes:'true', access_type:'online', prompt:'consent',
+    }:{
+      client_id:clientId,
+      redirect_uri:window.location.origin,
       response_type:'token', scope:GCAL_SCOPES, include_granted_scopes:'true', state:'gcal',
     });
     const authUrl=`https://accounts.google.com/o/oauth2/v2/auth?${params}`;
