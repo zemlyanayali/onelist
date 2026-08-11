@@ -371,6 +371,10 @@ function OneList(){
   const [showAccount,setShowAccount]=useState(false);
   const [gcalEvents,setGcalEvents]=useState([]);
   const [gcalConnected,setGcalConnected]=useState(!!localStorage.getItem('gcal_token'));
+  // null = not checked yet, {connected:false}, or {connected:true, labels, selected}.
+  // Unlike gcal_token, no Gmail token ever touches localStorage/the client at
+  // all — the refresh token lives server-side only (see api/gmail-labels.js).
+  const [gmailStatus,setGmailStatus]=useState(null);
   const accountRef=useRef(null);
   const [filterProject,setFilterProject]=useState(null); // null=all, 'misc'=no project, projId=specific
   const [confetti,setConfetti]=useState(false);
@@ -717,6 +721,124 @@ function OneList(){
     const token=localStorage.getItem('gcal_token');
     if(token&&gcalConnected)fetchGCalEvents(token);
   },[gcalConnected]);
+
+  // ── Gmail: connect + label picker ───────────────────────────────────────────
+  const loadGmailStatus=useCallback(async()=>{
+    if(!session)return;
+    try{
+      const r=await fetch('/api/gmail-labels',{headers:{Authorization:`Bearer ${session.access_token}`}});
+      if(r.status===404){setGmailStatus({connected:false});return;}
+      if(!r.ok){setGmailStatus({connected:false});return;}
+      const d=await r.json();
+      setGmailStatus({connected:true,labels:d.labels||[],selected:d.selected||null});
+    }catch{setGmailStatus({connected:false});}
+  },[session]);
+
+  const connectGmail=async()=>{
+    if(!session)return;
+    const isElectron=/Electron/i.test(navigator.userAgent);
+    try{
+      const r=await fetch('/api/gmail-oauth-start',{
+        method:'POST',
+        headers:{Authorization:`Bearer ${session.access_token}`,'Content-Type':'application/json'},
+        body:JSON.stringify({platform:isElectron?'electron':'web'}),
+      });
+      const d=await r.json();
+      if(!r.ok||!d.authUrl)throw new Error(d.error||'Failed to start Gmail connection');
+      if(isElectron)window.open(d.authUrl,'_blank');
+      else window.location.href=d.authUrl;
+    }catch(err){alert(err.message);}
+  };
+
+  const selectGmailLabel=async(label)=>{
+    if(!session)return;
+    try{
+      await fetch('/api/gmail-labels',{
+        method:'POST',
+        headers:{Authorization:`Bearer ${session.access_token}`,'Content-Type':'application/json'},
+        body:JSON.stringify({labelId:label.id,labelName:label.name}),
+      });
+      setGmailStatus(prev=>prev?{...prev,selected:label}:prev);
+      syncGmailImports();
+    }catch{}
+  };
+
+  const disconnectGmail=async()=>{
+    if(!session)return;
+    try{
+      await fetch('/api/gmail-labels',{method:'DELETE',headers:{Authorization:`Bearer ${session.access_token}`}});
+      setGmailStatus({connected:false});
+    }catch{}
+  };
+
+  // Loads status once a session exists, and again after the OAuth redirect
+  // lands (#gmail=connected, set by api/gmail-oauth-callback.js).
+  useEffect(()=>{ loadGmailStatus(); },[loadGmailStatus]);
+
+  useEffect(()=>{
+    if(window.location.hash.includes('gmail=connected')){
+      loadGmailStatus();
+      window.history.replaceState(null,'',window.location.pathname);
+    }
+  },[]);
+
+  // ── Gmail import sync: claim-and-merge ──────────────────────────────────────
+  // The background sync job (api/gmail-sync.js) never touches this app's own
+  // data blob directly — it only inserts rows into gmail_imports (see the plan
+  // doc for why: this blob has exactly one writer, this tab, and a second
+  // writer would race with the debounced autosave below and silently lose
+  // data). This is the other half: pull unclaimed rows and merge them in via
+  // the same state path every other task creation uses.
+  const pendingGmailClaims=useRef([]);
+
+  const syncGmailImports=useCallback(async()=>{
+    if(!session)return;
+    try{
+      const r=await fetch(`${SB_URL}/rest/v1/gmail_imports?user_id=eq.${session.user_id}&claimed=eq.false&select=*`,{headers:sbHdr(session.access_token)});
+      if(!r.ok)return;
+      const rows=await r.json();
+      if(!rows.length)return;
+      let addedIds=[];
+      // setData directly (not upd()) so we can bail out with the exact same
+      // `prev` reference when there's nothing new — upd() always creates a
+      // fresh object, which would trigger a needless autosave every poll.
+      setData(prev=>{
+        if(!prev)return prev;
+        const known=new Set((prev.tasks||[]).map(t=>t.gmailMessageId).filter(Boolean));
+        const newRows=rows.filter(row=>!known.has(row.gmail_message_id));
+        if(!newRows.length)return prev;
+        addedIds=newRows.map(row=>row.id);
+        return{...prev,tasks:[...prev.tasks,...newRows.map(row=>({
+          id:genId(),title:row.title||'(no subject)',projectId:null,subtasks:[],notes:row.snippet||'',
+          done:false,inToday:false,pinned:false,archived:false,completedAt:null,createdAt:Date.now(),recur:'',dueDate:'',
+          source:'gmail',gmailMessageId:row.gmail_message_id,gmailLabel:row.gmail_label,matchedBy:row.matched_by||'label',
+        }))]};
+      });
+      if(addedIds.length)pendingGmailClaims.current.push(...addedIds);
+    }catch{}
+  },[session]);
+
+  useEffect(()=>{
+    if(!session)return;
+    syncGmailImports();
+    const onFocus=()=>syncGmailImports();
+    const iv=setInterval(syncGmailImports,60000);
+    window.addEventListener('focus',onFocus);
+    return()=>{clearInterval(iv);window.removeEventListener('focus',onFocus);};
+  },[session,syncGmailImports]);
+
+  // Claim rows only once a save actually lands — if the tab closes/crashes
+  // before that, the rows stay unclaimed and the next poll safely re-merges
+  // them (the known-gmailMessageId check above makes that a no-op, not a dup).
+  useEffect(()=>{
+    if(saveStatus!=='saved'||!pendingGmailClaims.current.length||!session)return;
+    const ids=pendingGmailClaims.current;
+    pendingGmailClaims.current=[];
+    fetch(`${SB_URL}/rest/v1/gmail_imports?id=in.(${ids.join(',')})`,{
+      method:'PATCH',headers:sbHdr(session.access_token),
+      body:JSON.stringify({claimed:true,claimed_at:new Date().toISOString()}),
+    }).catch(()=>{});
+  },[saveStatus]);
 
   // ── Notification engine ───────────────────────────────────────────────────
   const [notifPerm,setNotifPerm]=useState(typeof Notification!=='undefined'?Notification.permission:'denied');
@@ -1631,6 +1753,40 @@ function OneList(){
                   <button onClick={connectGCal} style={{background:'#4285F4',border:'none',borderRadius:8,padding:'8px 16px',fontSize:12,fontWeight:700,color:'white',cursor:'pointer',display:'flex',alignItems:'center',gap:8}}>
                     <span style={{fontSize:14}}>📅</span> Connect Google Calendar
                   </button>
+                </div>
+              )}
+            </div>
+
+            {/* Gmail integration */}
+            <div style={{marginBottom:24,padding:16,background:T.sur2,borderRadius:12}}>
+              <div style={{fontSize:13,fontWeight:600,color:T.txt,marginBottom:4}}>Gmail</div>
+              {!gmailStatus&&<p style={{fontSize:11,color:T.txt3}}>Checking connection…</p>}
+              {gmailStatus&&!gmailStatus.connected&&(
+                <div>
+                  <p style={{fontSize:11,color:T.txt3,marginBottom:10,lineHeight:1.5}}>Pick a Gmail label — any email under it becomes a OneList task automatically, checked roughly every 15 minutes, even while OneList is closed.</p>
+                  <button onClick={connectGmail} style={{background:'#EA4335',border:'none',borderRadius:8,padding:'8px 16px',fontSize:12,fontWeight:700,color:'white',cursor:'pointer',display:'flex',alignItems:'center',gap:8}}>
+                    <span style={{fontSize:14}}>✉️</span> Connect Gmail
+                  </button>
+                </div>
+              )}
+              {gmailStatus&&gmailStatus.connected&&(
+                <div>
+                  <div style={{fontSize:12,color:'#34C759',marginBottom:6}}>✓ Connected</div>
+                  <p style={{fontSize:11,color:T.txt3,marginBottom:10,lineHeight:1.5}}>Emails under the chosen label become tasks automatically. In Testing mode, the connection needs refreshing about once a week — if imports stop, just reconnect.</p>
+                  <div style={{marginBottom:10}}>
+                    <label style={{fontSize:11,fontWeight:700,color:T.txt2,display:'block',marginBottom:4}}>Label to watch</label>
+                    <select value={gmailStatus.selected?.id||''} onChange={e=>{
+                        const label=(gmailStatus.labels||[]).find(l=>l.id===e.target.value);
+                        if(label)selectGmailLabel(label);
+                      }} style={{...inp,fontSize:12,padding:'8px 12px'}}>
+                      <option value="" disabled>Choose a label…</option>
+                      {(gmailStatus.labels||[]).map(l=><option key={l.id} value={l.id}>{l.name}</option>)}
+                    </select>
+                  </div>
+                  <div style={{display:'flex',gap:8}}>
+                    <button onClick={connectGmail} style={{background:'#EA433512',border:'1px solid #EA433540',borderRadius:8,padding:'7px 14px',fontSize:12,fontWeight:600,color:'#EA4335',cursor:'pointer'}}>Reconnect</button>
+                    <button onClick={disconnectGmail} style={{background:'#FF3B3012',border:'1px solid #FF3B3040',borderRadius:8,padding:'7px 14px',fontSize:12,fontWeight:600,color:'#FF3B30',cursor:'pointer'}}>Disconnect</button>
+                  </div>
                 </div>
               )}
             </div>

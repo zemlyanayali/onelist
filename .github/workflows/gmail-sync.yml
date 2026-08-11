@@ -1,0 +1,24 @@
+name: Gmail sync
+
+# Vercel's Hobby plan only allows a cron to run once a day (vercel.json covers
+# that as a daily safety net), so the real ~15-minute polling cadence runs
+# here instead, via a free GitHub Actions schedule hitting the same endpoint.
+#
+# Note: GitHub automatically disables scheduled workflows after 60 days with
+# no commits to the repository. For an actively developed app this isn't a
+# practical concern, but if syncing silently stops after a long quiet period,
+# check Actions -> this workflow -> re-enable.
+
+on:
+  schedule:
+    - cron: '*/15 * * * *'
+  workflow_dispatch: {}
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger Gmail sync
+        run: |
+          curl -sf -X POST "https://onelist-phi.vercel.app/api/gmail-sync" \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}"
